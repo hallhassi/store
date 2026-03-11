@@ -1,51 +1,71 @@
 const { createClient } = require('@supabase/supabase-js');
 
 exports.handler = async (event) => {
-    // 1. Safety check for the URL and Key
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-        return { statusCode: 500, body: JSON.stringify({ error: "Missing Env Vars" }) };
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { cart, region, method } = JSON.parse(event.body);
-
+    console.log("--- LOUD LOG: FUNCTION START ---");
+    
     try {
-        // 2. Fetch books and rates
+        // Log the raw incoming data
+        console.log("--- LOUD LOG: RAW EVENT BODY ---", event.body);
+        
+        const { cart, region, method } = JSON.parse(event.body);
+        console.log("--- LOUD LOG: PARSED DATA ---", { region, method, cart });
+
+        // Check for environment variables
+        if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+            console.error("--- LOUD LOG: MISSING ENV VARS ---");
+            throw new Error("Missing Supabase Environment Variables");
+        }
+
+        const supabase = createClient(
+            process.env.SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_ROLE_KEY
+        );
+
+        console.log("--- LOUD LOG: FETCHING DB DATA ---");
         const [booksReq, ratesReq] = await Promise.all([
-            supabase.from('books').in('id', Object.keys(cart)),
+            supabase.from('books').select('*'),
             supabase.from('shipping_rates').select('*')
         ]);
 
-        const books = booksReq.data;
-        const rates = ratesReq.data;
+        if (booksReq.error) {
+            console.error("--- LOUD LOG: BOOKS DB ERROR ---", booksReq.error.message);
+            throw new Error(booksReq.error.message);
+        }
+        
+        const allBooks = booksReq.data;
+        const allRates = ratesReq.data;
+        console.log(`--- LOUD LOG: DB DATA RECEIVED --- (Books: ${allBooks.length}, Rates: ${allRates.length})`);
 
         let subtotal = 0;
         let totalGrams = 0;
         let breakdown = [];
 
-        books.forEach(book => {
-            const qty = cart[book.id].qty;
-            const itemTotal = book.price * qty;
-            subtotal += itemTotal;
-            totalGrams += (book.weight * qty);
-            breakdown.push(`$${itemTotal} ${qty}x ${book.title}`);
+        // 1. Calculate Items
+        Object.keys(cart).forEach(id => {
+            const book = allBooks.find(b => b.id === id);
+            if (book) {
+                const qty = cart[id].qty;
+                const itemTotal = book.price * qty;
+                subtotal += itemTotal;
+                totalGrams += (book.weight * qty);
+                breakdown.push(`$${itemTotal} ${qty}x ${book.title}`);
+            } else {
+                console.warn(`--- LOUD LOG: BOOK ID ${id} NOT FOUND IN DB ---`);
+            }
         });
 
+        // 2. Calculate Shipping
         const weightLbs = (totalGrams / 453.592) * 1.2;
         let shippingCost = 0;
 
-        // 3. Shipping Calculation
         if (region === 'usa') {
-            const base = rates.find(r => r.region === 'usa' && !r.is_incremental);
-            const extra = rates.find(r => r.region === 'usa' && r.is_incremental);
+            const base = allRates.find(r => r.region === 'usa' && !r.is_incremental);
+            const extra = allRates.find(r => r.region === 'usa' && r.is_incremental);
             const roundedWeight = Math.ceil(weightLbs);
-            shippingCost = base.price + (Math.max(0, roundedWeight - 1) * extra.price);
+            shippingCost = parseFloat(base.price) + (Math.max(0, roundedWeight - 1) * parseFloat(extra.price));
         } else {
             let remainingWeight = weightLbs;
-            const regionTiers = rates.filter(r => r.region === region).sort((a, b) => a.weight_limit_lbs - b.weight_limit_lbs);
+            const regionTiers = allRates.filter(r => r.region === region).sort((a, b) => a.weight_limit_lbs - b.weight_limit_lbs);
             while (remainingWeight > 0) {
                 const currentBoxWeight = Math.min(remainingWeight, 4);
                 const tier = regionTiers.find(r => currentBoxWeight <= r.weight_limit_lbs) || regionTiers[regionTiers.length - 1];
@@ -55,7 +75,7 @@ exports.handler = async (event) => {
         }
         breakdown.push(`$${shippingCost.toFixed(2)} shipping`);
 
-        // 4. Fees
+        // 3. Fees
         let total = subtotal + shippingCost;
         if (method === 'card') total = (total + 0.30) / (1 - 0.029);
         if (method === 'paypal') total = (total + 0.49) / (1 - 0.044);
@@ -63,11 +83,19 @@ exports.handler = async (event) => {
         const fee = total - (subtotal + shippingCost);
         if (fee > 0) breakdown.push(`$${fee.toFixed(2)} fee`);
 
+        console.log("--- LOUD LOG: CALCULATION SUCCESS --- Total:", total);
+
         return {
             statusCode: 200,
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ total, breakdown })
         };
+
     } catch (err) {
-        return { statusCode: 502, body: JSON.stringify({ error: err.message }) };
+        console.error("--- LOUD LOG: CRITICAL CATCH ---", err.message);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ error: err.message })
+        };
     }
 };

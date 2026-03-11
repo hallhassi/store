@@ -55,8 +55,21 @@ let inventory = [];
 let cart = {}; 
 
 async function init() {
-    const { data } = await db.from('books').select('*');
-    inventory = data || [];
+    console.log("Fetching all store data...");
+    
+    // Fetch EVERYTHING in one go
+    const { data: storeData, error } = await db.rpc('get_store_data'); 
+    
+    // OR, if you don't want to write a custom function in Supabase, just do this:
+    const [books, rates] = await Promise.all([
+        db.from('books').select('*'),
+        db.from('shipping_rates').select('*')
+    ]);
+
+    inventory = books.data || [];
+    window.allRates = rates.data || []; // Keep rates in memory
+    
+    console.log("Store ready.");
     render();
 }
 

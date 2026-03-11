@@ -47,12 +47,12 @@
 </section>
 
 <script>
-const supabase = lib.createClient('https://numeejvkeadsucxwsecn.supabase.co', 'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC');
+const db = supabase.createClient('https://numeejvkeadsucxwsecn.supabase.co', 'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC');
 let inventory = [];
 let cart = {}; 
 
 async function init() {
-    const { data } = await supabase.from('books').select('*');
+    const { data } = await db.from('books').select('*');
     inventory = data || [];
     render();
 }

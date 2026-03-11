@@ -2,11 +2,11 @@ const { createClient } = require('@supabase/supabase-js');
 
 exports.handler = async (event) => {
     console.log("--- LOUD LOG: FUNCTION START ---");
-    
+
     try {
         // Log the raw incoming data
         console.log("--- LOUD LOG: RAW EVENT BODY ---", event.body);
-        
+
         const { cart, region, method } = JSON.parse(event.body);
         console.log("--- LOUD LOG: PARSED DATA ---", { region, method, cart });
 
@@ -31,7 +31,7 @@ exports.handler = async (event) => {
             console.error("--- LOUD LOG: BOOKS DB ERROR ---", booksReq.error.message);
             throw new Error(booksReq.error.message);
         }
-        
+
         const allBooks = booksReq.data;
         const allRates = ratesReq.data;
         console.log(`--- LOUD LOG: DB DATA RECEIVED --- (Books: ${allBooks.length}, Rates: ${allRates.length})`);
@@ -54,18 +54,35 @@ exports.handler = async (event) => {
             }
         });
 
-        // 2. Calculate Shipping
+        // 2. Shipping Math
         const weightLbs = (totalGrams / 453.592) * 1.2;
         let shippingCost = 0;
 
-        if (region === 'usa') {
-            const base = allRates.find(r => r.region === 'usa' && !r.is_incremental);
-            const extra = allRates.find(r => r.region === 'usa' && r.is_incremental);
+        // Force region to lowercase for matching
+        const searchRegion = region.toLowerCase();
+
+        if (searchRegion === 'usa') {
+            const base = allRates.find(r => r.region.toLowerCase() === 'usa' && !r.is_incremental);
+            const extra = allRates.find(r => r.region.toLowerCase() === 'usa' && r.is_incremental);
+
+            if (!base || !extra) {
+                console.error("--- LOUD LOG: USA RATES MISSING IN DB ---");
+                throw new Error("Shipping rates for USA not found in database.");
+            }
+
             const roundedWeight = Math.ceil(weightLbs);
             shippingCost = parseFloat(base.price) + (Math.max(0, roundedWeight - 1) * parseFloat(extra.price));
         } else {
             let remainingWeight = weightLbs;
-            const regionTiers = allRates.filter(r => r.region === region).sort((a, b) => a.weight_limit_lbs - b.weight_limit_lbs);
+            const regionTiers = allRates
+                .filter(r => r.region.toLowerCase() === searchRegion)
+                .sort((a, b) => a.weight_limit_lbs - b.weight_limit_lbs);
+
+            if (regionTiers.length === 0) {
+                console.error(`--- LOUD LOG: NO RATES FOUND FOR ${searchRegion} ---`);
+                throw new Error(`Shipping rates for ${region} not found.`);
+            }
+
             while (remainingWeight > 0) {
                 const currentBoxWeight = Math.min(remainingWeight, 4);
                 const tier = regionTiers.find(r => currentBoxWeight <= r.weight_limit_lbs) || regionTiers[regionTiers.length - 1];
@@ -73,13 +90,12 @@ exports.handler = async (event) => {
                 remainingWeight -= currentBoxWeight;
             }
         }
-        breakdown.push(`$${shippingCost.toFixed(2)} shipping`);
 
         // 3. Fees
         let total = subtotal + shippingCost;
         if (method === 'card') total = (total + 0.30) / (1 - 0.029);
         if (method === 'paypal') total = (total + 0.49) / (1 - 0.044);
-        
+
         const fee = total - (subtotal + shippingCost);
         if (fee > 0) breakdown.push(`$${fee.toFixed(2)} fee`);
 

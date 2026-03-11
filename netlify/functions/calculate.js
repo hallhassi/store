@@ -62,8 +62,8 @@ exports.handler = async (event) => {
         const searchRegion = region.toLowerCase();
 
         if (searchRegion === 'usa') {
-            const base = allRates.find(r => r.region.toLowerCase() === 'usa' && !r.is_incremental);
-            const extra = allRates.find(r => r.region.toLowerCase() === 'usa' && r.is_incremental);
+            const base = allRates.find(r => r.region.toLowerCase() === 'usa' && r.is_base_rate);
+            const extra = allRates.find(r => r.region.toLowerCase() === 'usa' && !r.is_base_rate);
 
             if (!base || !extra) {
                 console.error("--- LOUD LOG: USA RATES MISSING IN DB ---");

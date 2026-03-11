@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Storefront</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        .hidden { display: none; }
+        ul { list-style: none; padding: 0; }
+        .out-of-stock { color: #888; text-decoration: line-through; }
+        #zelle-instructions { background: #f0f0f0; padding: 10px; border-radius: 4px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<section>
+  <h3>Store</h3>
+  <ul id="product-list"></ul>
+</section>
+
+<section id="cart-wrapper" class="hidden">
+  <fieldset onchange="updateTotal()">
+    <legend>Shipping</legend>
+    <label><input type="radio" name="region" value="usa"> USA</label>
+    <label><input type="radio" name="region" value="canada"> Canada</label>
+    <label><input type="radio" name="region" value="row"> Rest of World</label>
+  </fieldset>
+
+  <fieldset onchange="updateTotal()">
+    <legend>Payment</legend>
+    <label><input type="radio" name="method" value="paypal"> PayPal</label>
+    <label><input type="radio" name="method" value="zelle"> Zelle</label>
+    <label><input type="radio" name="method" value="card"> Card</label>
+  </fieldset>
+
+  <div id="summary-section" class="hidden">
+    <h3>Summary</h3>
+    <ul id="summary-list"></ul>
+    <strong id="final-total"></strong>
+    
+    <div id="zelle-instructions" class="hidden">
+      <p>Please Zelle the total to: <strong>your@email.com</strong><br>Include your name and address in the memo.</p>
+    </div>
+
+    <button id="checkout-btn" onclick="handleCheckout()">Checkout</button>
+  </div>
+</section>
+
+<script>
+const supabase = lib.createClient('https://numeejvkeadsucxwsecn.supabase.co', 'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC');
+let inventory = [];
+let cart = {}; 
+
+async function init() {
+    const { data } = await supabase.from('books').select('*');
+    inventory = data || [];
+    render();
+}
+
+function render() {
+    const list = document.getElementById('product-list');
+    list.innerHTML = inventory.map(book => {
+        const inCart = cart[book.id];
+        const isOutOfStock = book.stock <= 0;
+
+        return `
+            <li class="${isOutOfStock ? 'out-of-stock' : ''}">
+                $${book.price} ${book.title} 
+                ${isOutOfStock 
+                    ? '<em>Sold Out</em>' 
+                    : inCart 
+                        ? `<button onclick="updateQty('${book.id}', ${inCart.qty - 1})">-</button> 
+                           ${inCart.qty} 
+                           <button onclick="updateQty('${book.id}', ${inCart.qty + 1})">+</button>`
+                        : `<button onclick="addToCart('${book.id}')">Add</button>`
+                }
+            </li>
+        `;
+    }).join('');
+}
+
+function addToCart(id) {
+    document.getElementById('cart-wrapper').classList.remove('hidden');
+    cart[id] = { qty: 1 };
+    render();
+    updateTotal();
+}
+
+function updateQty(id, qty) {
+    const book = inventory.find(b => b.id === id);
+    if (qty > book.stock) return alert('Max stock reached');
+    
+    if (qty <= 0) delete cart[id];
+    else cart[id].qty = qty;
+    
+    render();
+    updateTotal();
+}
+
+async function updateTotal() {
+    const region = document.querySelector('[name="region"]:checked')?.value;
+    const method = document.querySelector('[name="method"]:checked')?.value;
+    const zelleBox = document.getElementById('zelle-instructions');
+    
+    if (!region || !method || !Object.keys(cart).length) return;
+
+    // Toggle Zelle info visibility
+    method === 'zelle' ? zelleBox.classList.remove('hidden') : zelleBox.classList.add('hidden');
+
+    const res = await fetch('/.netlify/functions/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart, region, method })
+    });
+    
+    if (res.ok) {
+        const { breakdown, total } = await res.json();
+        document.getElementById('summary-list').innerHTML = breakdown.map(l => `<li>${l}</li>`).join('');
+        document.getElementById('final-total').innerText = `Total: $${total.toFixed(2)}`;
+        document.getElementById('summary-section').classList.remove('hidden');
+    }
+}
+
+async function handleCheckout() {
+    const method = document.querySelector('[name="method"]:checked').value;
+    
+    if (method === 'zelle') {
+        alert('Please complete your Zelle payment. We will process your order once received!');
+        return;
+    }
+
+    // For Stripe/PayPal, redirect to payment URL from Netlify Function
+    const res = await fetch('/.netlify/functions/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart, method })
+    });
+    const { url } = await res.json();
+    window.location.href = url;
+}
+
+init();
+</script>
+</body>
+</html>

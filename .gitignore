@@ -1,0 +1,14 @@
+# Local environment variables
+.env
+.env.local
+
+# Node modules (added if you ever use npm locally)
+node_modules/
+
+# Netlify build folders
+.netlify/
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db

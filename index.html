@@ -1,145 +1,174 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Storefront</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <style>
-        .hidden { display: none; }
-        ul { list-style: none; padding: 0; }
-        .out-of-stock { color: #888; text-decoration: line-through; }
-        #zelle-instructions { background: #f0f0f0; padding: 10px; border-radius: 4px; margin-top: 10px; }
-    </style>
-</head>
-<body>
-
-<section>
-  <h3>Store</h3>
+<div id="store-front">
+  <h3 id="store-header">store</h3>
   <ul id="product-list"></ul>
-</section>
+</div>
 
-<section id="cart-wrapper" class="hidden">
-  <fieldset onchange="updateTotal()">
-    <legend>Shipping</legend>
-    <label><input type="radio" name="region" value="usa"> USA</label>
-    <label><input type="radio" name="region" value="canada"> Canada</label>
-    <label><input type="radio" name="region" value="row"> Rest of World</label>
-  </fieldset>
-
-  <fieldset onchange="updateTotal()">
-    <legend>Payment</legend>
-    <label><input type="radio" name="method" value="paypal"> PayPal</label>
-    <label><input type="radio" name="method" value="zelle"> Zelle</label>
-    <label><input type="radio" name="method" value="card"> Card</label>
-  </fieldset>
-
-  <div id="summary-section" class="hidden">
-    <h3>Summary</h3>
-    <ul id="summary-list"></ul>
-    <strong id="final-total"></strong>
-    
-    <div id="zelle-instructions" class="hidden">
-      <p>Please Zelle the total to: <strong>your@email.com</strong><br>Include your name and address in the memo.</p>
-    </div>
-
-    <button id="checkout-btn" onclick="handleCheckout()">Checkout</button>
+<div id="cart-wrapper" style="display: none;">
+  <div>
+    <h3>shipping</h3>
+    <ul>
+      <li><input type="radio" id="usa" name="shipping_type" data-region="usa" onclick="calculateTotals()"><label for="usa">USA</label></li>
+      <li><input type="radio" id="canada" name="shipping_type" data-region="canada" onclick="calculateTotals()"><label for="canada">Canada</label></li>
+      <li><input type="radio" id="intl" name="shipping_type" data-region="row" onclick="calculateTotals()"><label for="intl">Rest of World</label></li>
+    </ul>
   </div>
-</section>
+
+  <div>
+    <h3>payment</h3>
+    <ul>
+      <li><input type="radio" id="pay_paypal" name="pay_method" value="paypal" onclick="calculateTotals()"><label for="pay_paypal">PayPal</label></li>
+      <li><input type="radio" id="pay_zelle" name="pay_method" value="zelle" onclick="calculateTotals()"><label for="pay_zelle">Zelle</label></li>
+      <li><input type="radio" id="pay_card" name="pay_method" value="card" onclick="calculateTotals()"><label for="pay_card">Credit Card</label></li>
+    </ul>
+  </div>
+
+  <div id="total-section" style="display: none;">
+    <h3>total</h3>
+    <ul id="summary-list">
+      </ul>
+  </div>
+
+  <div id="checkout-section" style="display: none;">
+    <h3>checkout</h3>
+    <ul>
+      <li><button onclick="alert('Proceeding to checkout...')">checkout</button></li>
+    </ul>
+  </div>
+</div>
 
 <script>
-const db = supabase.createClient('https://numeejvkeadsucxwsecn.supabase.co', 'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC');
-let inventory = [];
-let cart = {}; 
+const products = {
+  'altcomics 7': { price: 8, weight: 77 },
+  'altcomics 4': { price: 8, weight: 59.8 },
+  'young lions': { price: 50, weight: 192 },
+  'the whale': { price: 15, weight: 98 },
+  'jaywalk 6': { price: 15, weight: 218 },
+  'comics youth': { price: 5, weight: 30 },
+  '2001': { price: 25, weight: 468 },
+  'mirror mirror': { price: 30, weight: 440 }
+};
 
-async function init() {
-    const { data } = await db.from('books').select('*');
-    inventory = data || [];
-    render();
-}
+const intlRates = [
+  { limit: 0.5, canada: 12.99, row: 14.99 },
+  { limit: 1.0, canada: 14.99, row: 18.99 },
+  { limit: 2.0, canada: 18.99, row: 22.99 },
+  { limit: 3.0, canada: 22.99, row: 29.99 },
+  { limit: 4.0, canada: 29.99, row: 38.99 }
+];
 
-function render() {
-    const list = document.getElementById('product-list');
-    list.innerHTML = inventory.map(book => {
-        const inCart = cart[book.id];
-        const isOutOfStock = book.stock <= 0;
+const pkgMultiplier = 1.2; 
+let cart = {};
+let hasStartedShopping = false;
 
-        return `
-            <li class="${isOutOfStock ? 'out-of-stock' : ''}">
-                $${book.price} ${book.title} 
-                ${isOutOfStock 
-                    ? '<em>Sold Out</em>' 
-                    : inCart 
-                        ? `<button onclick="updateQty('${book.id}', ${inCart.qty - 1})">-</button> 
-                           ${inCart.qty} 
-                           <button onclick="updateQty('${book.id}', ${inCart.qty + 1})">+</button>`
-                        : `<button onclick="addToCart('${book.id}')">Add</button>`
-                }
-            </li>
-        `;
-    }).join('');
-}
-
-function addToCart(id) {
-    document.getElementById('cart-wrapper').classList.remove('hidden');
-    cart[id] = { qty: 1 };
-    render();
-    updateTotal();
-}
-
-function updateQty(id, qty) {
-    const book = inventory.find(b => b.id === id);
-    if (qty > book.stock) return alert('Max stock reached');
-    
-    if (qty <= 0) delete cart[id];
-    else cart[id].qty = qty;
-    
-    render();
-    updateTotal();
-}
-
-async function updateTotal() {
-    const region = document.querySelector('[name="region"]:checked')?.value;
-    const method = document.querySelector('[name="method"]:checked')?.value;
-    const zelleBox = document.getElementById('zelle-instructions');
-    
-    if (!region || !method || !Object.keys(cart).length) return;
-
-    // Toggle Zelle info visibility
-    method === 'zelle' ? zelleBox.classList.remove('hidden') : zelleBox.classList.add('hidden');
-
-    const res = await fetch('/.netlify/functions/calculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cart, region, method })
-    });
-    
-    if (res.ok) {
-        const { breakdown, total } = await res.json();
-        document.getElementById('summary-list').innerHTML = breakdown.map(l => `<li>${l}</li>`).join('');
-        document.getElementById('final-total').innerText = `Total: $${total.toFixed(2)}`;
-        document.getElementById('summary-section').classList.remove('hidden');
+function renderStore() {
+  const list = document.getElementById('product-list');
+  list.innerHTML = '';
+  for (const [name, info] of Object.entries(products)) {
+    const li = document.createElement('li');
+    if (cart[name]) {
+      li.innerHTML = `<button onclick="removeFromCart('${name}')">remove</button> <input type="number" value="${cart[name].qty}" min="1" style="width: 40px;" onchange="updateQty('${name}', this.value)"> $${info.price} ${name}`;
+    } else {
+      li.innerHTML = `<button onclick="addToCart('${name}')">buy</button> $${info.price} ${name}`;
     }
+    list.appendChild(li);
+  }
 }
 
-async function handleCheckout() {
-    const method = document.querySelector('[name="method"]:checked').value;
-    
-    if (method === 'zelle') {
-        alert('Please complete your Zelle payment. We will process your order once received!');
-        return;
+function addToCart(name) {
+  if (!hasStartedShopping) {
+    hasStartedShopping = true;
+    document.getElementById('cart-wrapper').style.display = 'block';
+  }
+  cart[name] = { qty: 1 };
+  renderStore();
+  calculateTotals();
+}
+
+function updateQty(name, newQty) {
+  const qty = parseInt(newQty);
+  if (qty > 0) cart[name].qty = qty;
+  else delete cart[name];
+  renderStore();
+  calculateTotals();
+}
+
+function removeFromCart(name) {
+  delete cart[name];
+  renderStore();
+  calculateTotals();
+}
+
+function calculateTotals() {
+  const summaryList = document.getElementById('summary-list');
+  summaryList.innerHTML = ''; // Clear previous summary
+  
+  let subtotal = 0;
+  let totalGrams = 0;
+  
+  // 1. LIST INDIVIDUAL ITEMS
+  for (const [name, item] of Object.entries(cart)) {
+    const itemPrice = products[name].price;
+    const itemTotal = itemPrice * item.qty;
+    subtotal += itemTotal;
+    totalGrams += (products[name].weight * item.qty);
+
+    const li = document.createElement('li');
+    li.innerText = `$${itemTotal} ${item.qty}x ${name}`;
+    summaryList.appendChild(li);
+  }
+
+  const weightLbs = (totalGrams / 453.592) * pkgMultiplier;
+  const selectedShipping = document.querySelector('input[name="shipping_type"]:checked');
+  const selectedPayment = document.querySelector('input[name="pay_method"]:checked');
+  
+  // 2. SHIPPING CALCULATION
+  let shippingCost = 0;
+  if (selectedShipping && Object.keys(cart).length > 0) {
+    const region = selectedShipping.getAttribute('data-region');
+    if (selectedShipping.id === 'usa') {
+      const roundedWeight = Math.ceil(weightLbs);
+      shippingCost = 4.47 + (Math.max(0, roundedWeight - 1) * 0.75);
+    } else {
+      let remainingWeight = weightLbs;
+      while (remainingWeight > 0) {
+        const currentBoxWeight = Math.min(remainingWeight, 4);
+        const tier = intlRates.find(r => currentBoxWeight <= r.limit);
+        shippingCost += tier ? tier[region] : intlRates[intlRates.length - 1][region];
+        remainingWeight -= currentBoxWeight;
+      }
     }
+    const shipLi = document.createElement('li');
+    shipLi.innerText = `$${shippingCost.toFixed(2)} shipping`;
+    summaryList.appendChild(shipLi);
+  }
 
-    // For Stripe/PayPal, redirect to payment URL from Netlify Function
-    const res = await fetch('/.netlify/functions/create-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cart, method })
-    });
-    const { url } = await res.json();
-    window.location.href = url;
+  // 3. FEE CALCULATION
+  let fee = 0;
+  const preFeeTotal = subtotal + shippingCost;
+  if (selectedPayment) {
+    const method = selectedPayment.value;
+    if (method === 'paypal') fee = (preFeeTotal * 0.044) + 0.49;
+    else if (method === 'card') fee = (preFeeTotal * 0.029) + 0.30;
+    else fee = 0;
+    
+    const feeLi = document.createElement('li');
+    feeLi.innerText = `$${fee.toFixed(2)} fee`;
+    summaryList.appendChild(feeLi);
+  }
+
+  // 4. TOTAL AND VISIBILITY
+  if (selectedShipping && selectedPayment && Object.keys(cart).length > 0) {
+    const totalLi = document.createElement('li');
+    totalLi.innerText = `$${(preFeeTotal + fee).toFixed(2)} total`;
+    summaryList.appendChild(totalLi);
+    
+    document.getElementById('total-section').style.display = 'block';
+    document.getElementById('checkout-section').style.display = 'block';
+  } else {
+    document.getElementById('total-section').style.display = Object.keys(cart).length > 0 ? 'block' : 'none';
+    document.getElementById('checkout-section').style.display = 'none';
+  }
 }
 
-init();
+renderStore();
 </script>
-</body>
-</html>

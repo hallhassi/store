@@ -74,8 +74,20 @@
 const db = supabase.createClient('https://numeejvkeadsucxwsecn.supabase.co', 'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC');
 let inventory = [];
 let cart = {}; 
-
 async function init() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('session') === 'success') {
+        localStorage.removeItem('cart'); 
+        cart = {};
+
+        // Create the success message element
+        const msg = document.createElement('p');
+        msg.id = 'success-msg';
+        msg.innerHTML = '<strong>order received. thank you.</strong>';
+        document.body.prepend(msg);
+        window.history.replaceState({}, document.title, "/");
+    }
+    
     const [booksReq, ratesReq] = await Promise.all([
         db.from('books').select('*'),
         db.from('shipping_rates').select('*')

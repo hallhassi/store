@@ -53,14 +53,12 @@ exports.handler = async (event) => {
     shipping_address_collection: {
         allowed_countries: ['US', 'CA', 'GB'], // Add any countries you support
     },
-    metadata: {
-        order_details: Object.entries(cart)
-            .map(([id, item]) => {
-                const book = allBooks.find(b => b.id === id);
-                return `${item.qty}x ${book ? book.title : id}`;
-            })
-            .join(', ')
-    },
+metadata: {
+    // This creates a string like: "uuid-123:1,uuid-456:2"
+    order_details: Object.entries(cart)
+        .map(([id, item]) => `${id}:${item.qty}`)
+        .join(',')
+},
     line_items: [{
         price_data: {
             currency: 'usd',

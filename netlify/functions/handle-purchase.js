@@ -8,9 +8,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 exports.handler = async (event) => {
     let orderData = {};
 
-    // --- 1. IDENTIFY SOURCE & PARSE DATA ---
-    
-    // Check if it's a Stripe Webhook
     if (event.headers['stripe-signature']) {
         try {
             const stripeEvent = stripe.webhooks.constructEvent(
@@ -18,84 +15,72 @@ exports.handler = async (event) => {
                 event.headers['stripe-signature'], 
                 process.env.STRIPE_WEBHOOK_SECRET
             );
-
-            // We only care about the completed session
-            if (stripeEvent.type !== 'checkout.session.completed') {
-                return { statusCode: 200, body: 'Event received' };
-            }
+            if (stripeEvent.type !== 'checkout.session.completed') return { statusCode: 200 };
             
             const session = stripeEvent.data.object;
             orderData = {
-                items: session.metadata.order_details, // Format: "uuid:qty,uuid:qty"
+                items: session.metadata.order_details,
                 email: session.customer_details.email,
                 name: session.customer_details.name,
                 address: `${session.shipping_details.address.line1}, ${session.shipping_details.address.city}, ${session.shipping_details.address.postal_code}`
             };
-        } catch (err) {
-            console.error('Stripe Webhook Error:', err.message);
-            return { statusCode: 400, body: `Webhook Error: ${err.message}` };
+        } catch (err) { 
+            console.error('Stripe Sig Error:', err.message);
+            return { statusCode: 400 }; 
         }
-    } 
-    // Check if it's a PayPal Fetch from your frontend
-    else {
-        try {
-            const body = JSON.parse(event.body);
-            if (body.source !== 'paypal') {
-                return { statusCode: 400, body: 'Invalid source' };
-            }
-            
-            const ship = body.details.purchase_units[0].shipping;
-            orderData = {
-                // Generate same uuid:qty format for the loop below
-                items: Object.entries(body.cart).map(([id, item]) => `${id}:${item.qty}`).join(','),
-                email: body.details.payer.email_address,
-                name: ship.name.full_name,
-                address: `${ship.address.address_line_1}, ${ship.address.admin_area_2}, ${ship.address.postal_code}`
-            };
-        } catch (err) {
-            console.error('PayPal Parsing Error:', err.message);
-            return { statusCode: 400, body: 'Invalid JSON' };
-        }
+    } else {
+        const body = JSON.parse(event.body);
+        if (body.source !== 'paypal') return { statusCode: 400 };
+        const ship = body.details.purchase_units[0].shipping;
+        orderData = {
+            items: Object.entries(body.cart).map(([id, item]) => `${id}:${item.qty}`).join(','),
+            email: body.details.payer.email_address,
+            name: ship.name.full_name,
+            address: `${ship.address.address_line_1}, ${ship.address.admin_area_2}, ${ship.address.postal_code}`
+        };
     }
 
-// --- SHARED ACTIONS (Inventory, Database Record, & Email) ---
-
     try {
-        // A. Record the Order in Supabase
-        const { error: orderError } = await supabase
-            .from('orders')
-            .insert([{
-                customer_name: orderData.name,
-                customer_email: orderData.email,
-                shipping_address: orderData.address,
-                items: orderData.items,
-                source: event.headers['stripe-signature'] ? 'stripe' : 'paypal'
-            }]);
-        
-        if (orderError) console.error('Failed to record order:', orderError.message);
+        // 1. RECORD ORDER
+        const { error: dbError } = await supabase.from('orders').insert([{
+            customer_name: orderData.name,
+            customer_email: orderData.email,
+            shipping_address: orderData.address,
+            items: orderData.items,
+            source: event.headers['stripe-signature'] ? 'stripe' : 'paypal'
+        }]);
+        if (dbError) console.error('Database Insert Error:', dbError.message);
 
-        // B. Decrement Inventory in Supabase
-        if (orderData.items) {
-            const pairs = orderData.items.split(',');
-            for (const pair of pairs) {
-                const [id, qtyStr] = pair.split(':');
-                const qty = parseInt(qtyStr);
-                if (id && !isNaN(qty)) {
-                    await supabase.rpc('decrement_stock', { row_id: id, amount: qty });
-                }
+        // 2. DECREMENT STOCK
+        const pairs = orderData.items.split(',');
+        for (const pair of pairs) {
+            const [id, qtyStr] = pair.split(':');
+            const qty = parseInt(qtyStr);
+            if (id && !isNaN(qty)) {
+                const { error: rpcError } = await supabase.rpc('decrement_stock', { row_id: id, amount: qty });
+                if (rpcError) console.error(`RPC Error for ${id}:`, rpcError.message);
             }
         }
 
-        // C. Send Emails via Resend
+        // 3. EMAIL TO MERCHANT (YOU)
         await resend.emails.send({
             from: 'onboarding@resend.dev',
             to: 'hallhassi@gmail.com', 
             subject: `New Order: ${orderData.name}`,
-            html: `<h3>New ${orderData.items.includes(':') ? 'Order' : 'Test'}</h3>
-                   <p><strong>Customer:</strong> ${orderData.name}</p>
-                   <p><strong>Address:</strong> ${orderData.address}</p>
-                   <p><strong>Items:</strong> ${orderData.items}</p>`
+            html: `<p><strong>Items:</strong> ${orderData.items}</p><p><strong>Ship to:</strong> ${orderData.address}</p>`
+        });
+
+        // 4. EMAIL TO CUSTOMER (THE RECEIPT)
+        await resend.emails.send({
+            from: 'onboarding@resend.dev',
+            to: orderData.email, // Sends to the buyer
+            subject: `Order Confirmation`,
+            html: `<p>Thank you for your order, ${orderData.name}.</p><p>I'll be shipping your items to ${orderData.address} shortly.</p>`
         });
 
         return { statusCode: 200, body: JSON.stringify({ success: true }) };
+    } catch (err) {
+        console.error('Processing Error:', err);
+        return { statusCode: 500 };
+    }
 };

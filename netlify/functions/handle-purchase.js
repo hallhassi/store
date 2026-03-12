@@ -58,53 +58,44 @@ exports.handler = async (event) => {
         }
     }
 
-    // --- 2. SHARED ACTIONS (Inventory & Email) ---
+// --- SHARED ACTIONS (Inventory, Database Record, & Email) ---
 
     try {
-        // A. Decrement Inventory in Supabase
+        // A. Record the Order in Supabase
+        const { error: orderError } = await supabase
+            .from('orders')
+            .insert([{
+                customer_name: orderData.name,
+                customer_email: orderData.email,
+                shipping_address: orderData.address,
+                items: orderData.items,
+                source: event.headers['stripe-signature'] ? 'stripe' : 'paypal'
+            }]);
+        
+        if (orderError) console.error('Failed to record order:', orderError.message);
+
+        // B. Decrement Inventory in Supabase
         if (orderData.items) {
             const pairs = orderData.items.split(',');
-
             for (const pair of pairs) {
                 const [id, qtyStr] = pair.split(':');
                 const qty = parseInt(qtyStr);
-
                 if (id && !isNaN(qty)) {
-                    const { error } = await supabase.rpc('decrement_stock', { 
-                        row_id: id, 
-                        amount: qty 
-                    });
-                    
-                    if (error) {
-                        console.error(`Supabase Error for ID ${id}:`, error.message);
-                    } else {
-                        console.log(`Successfully decremented ${id} by ${qty}`);
-                    }
+                    await supabase.rpc('decrement_stock', { row_id: id, amount: qty });
                 }
             }
         }
 
-        // B. Send Emails via Resend
-        // Note: Using onboarding@resend.dev requires the 'to' email to be your Resend login email
+        // C. Send Emails via Resend
         await resend.emails.send({
             from: 'onboarding@resend.dev',
             to: 'hallhassi@gmail.com', 
             subject: `New Order: ${orderData.name}`,
-            html: `
-                <h3>Order Details</h3>
-                <p><strong>Items:</strong> ${orderData.items}</p>
-                <p><strong>Customer:</strong> ${orderData.name} (${orderData.email})</p>
-                <p><strong>Shipping Address:</strong><br>${orderData.address}</p>
-            `
+            html: `<h3>New ${orderData.items.includes(':') ? 'Order' : 'Test'}</h3>
+                   <p><strong>Customer:</strong> ${orderData.name}</p>
+                   <p><strong>Address:</strong> ${orderData.address}</p>
+                   <p><strong>Items:</strong> ${orderData.items}</p>`
         });
 
-        return { 
-            statusCode: 200, 
-            body: JSON.stringify({ success: true }) 
-        };
-
-    } catch (finalErr) {
-        console.error('Processing Error:', finalErr);
-        return { statusCode: 500, body: 'Internal Server Error' };
-    }
+        return { statusCode: 200, body: JSON.stringify({ success: true }) };
 };

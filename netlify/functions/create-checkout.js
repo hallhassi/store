@@ -68,9 +68,8 @@ metadata: {
         quantity: 1,
     }],
     mode: 'payment',
-    success_url: `${process.env.URL}/success`,
-    cancel_url: `${process.env.URL}/`,
-        });
+success_url: `${process.env.URL}/?session=success`, 
+    cancel_url: `${process.env.URL}/`,        });
 
         return {
             statusCode: 200,

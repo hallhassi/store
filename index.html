@@ -261,8 +261,7 @@ async function handleCheckout() {
                     cart: cart // your local cart object
                 })
             });
-            window.location.href = '/success';
-        }
+window.location.href = '/?session=success';        }
     }).render('#paypal-button-container');
 }
         

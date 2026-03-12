@@ -8,79 +8,77 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 exports.handler = async (event) => {
     let orderData = {};
 
+    // --- 1. PARSE INCOMING DATA ---
     if (event.headers['stripe-signature']) {
         try {
-            const stripeEvent = stripe.webhooks.constructEvent(
-                event.body, 
-                event.headers['stripe-signature'], 
-                process.env.STRIPE_WEBHOOK_SECRET
-            );
+            const stripeEvent = stripe.webhooks.constructEvent(event.body, event.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
             if (stripeEvent.type !== 'checkout.session.completed') return { statusCode: 200 };
-            
             const session = stripeEvent.data.object;
             orderData = {
-                items: session.metadata.order_details,
+                rawItems: session.metadata.order_details, // "uuid:qty,uuid:qty"
                 email: session.customer_details.email,
                 name: session.customer_details.name,
-                address: `${session.shipping_details.address.line1}, ${session.shipping_details.address.city}, ${session.shipping_details.address.postal_code}`
+                address: `${session.shipping_details.address.line1}, ${session.shipping_details.address.city}, ${session.shipping_details.address.postal_code}`,
+                source: 'stripe'
             };
-        } catch (err) { 
-            console.error('Stripe Sig Error:', err.message);
-            return { statusCode: 400 }; 
-        }
+        } catch (err) { return { statusCode: 400 }; }
     } else {
         const body = JSON.parse(event.body);
         if (body.source !== 'paypal') return { statusCode: 400 };
         const ship = body.details.purchase_units[0].shipping;
         orderData = {
-            items: Object.entries(body.cart).map(([id, item]) => `${id}:${item.qty}`).join(','),
+            rawItems: Object.entries(body.cart).map(([id, item]) => `${id}:${item.qty}`).join(','),
             email: body.details.payer.email_address,
             name: ship.name.full_name,
-            address: `${ship.address.address_line_1}, ${ship.address.admin_area_2}, ${ship.address.postal_code}`
+            address: `${ship.address.address_line_1}, ${ship.address.admin_area_2}, ${ship.address.postal_code}`,
+            source: 'paypal'
         };
     }
 
     try {
-        // 1. RECORD ORDER
-        const { error: dbError } = await supabase.from('orders').insert([{
+        // --- 2. FETCH TITLES FOR PRETTY EMAILS ---
+        const itemPairs = orderData.rawItems.split(',');
+        let displayItems = [];
+        
+        for (const pair of itemPairs) {
+            const [id, qty] = pair.split(':');
+            const { data: book } = await supabase.from('books').select('title').eq('id', id).single();
+            displayItems.push(`${qty}x ${book ? book.title : id}`);
+            
+            // --- 3. DECREMENT STOCK ---
+            await supabase.rpc('decrement_stock', { row_id: id, amount: parseInt(qty) });
+        }
+        const prettyItemList = displayItems.join(', ');
+
+        // --- 4. RECORD ORDER IN DB ---
+        await supabase.from('orders').insert([{
             customer_name: orderData.name,
             customer_email: orderData.email,
             shipping_address: orderData.address,
-            items: orderData.items,
-            source: event.headers['stripe-signature'] ? 'stripe' : 'paypal'
+            items: prettyItemList, // Now saves "1x Altcomics 7" instead of UUID
+            source: orderData.source
         }]);
-        if (dbError) console.error('Database Insert Error:', dbError.message);
 
-        // 2. DECREMENT STOCK
-        const pairs = orderData.items.split(',');
-        for (const pair of pairs) {
-            const [id, qtyStr] = pair.split(':');
-            const qty = parseInt(qtyStr);
-            if (id && !isNaN(qty)) {
-                const { error: rpcError } = await supabase.rpc('decrement_stock', { row_id: id, amount: qty });
-                if (rpcError) console.error(`RPC Error for ${id}:`, rpcError.message);
-            }
-        }
-
-        // 3. EMAIL TO MERCHANT (YOU)
+        // --- 5. SEND EMAILS ---
+        // To Merchant
         await resend.emails.send({
             from: 'onboarding@resend.dev',
-            to: 'hallhassi@gmail.com', 
+            to: 'hallhassi@gmail.com',
             subject: `New Order: ${orderData.name}`,
-            html: `<p><strong>Items:</strong> ${orderData.items}</p><p><strong>Ship to:</strong> ${orderData.address}</p>`
+            html: `<p><strong>Items:</strong> ${prettyItemList}</p><p><strong>Ship to:</strong> ${orderData.address}</p>`
         });
 
-        // 4. EMAIL TO CUSTOMER (THE RECEIPT)
+        // To Customer (Will only work for non-account emails if domain is verified)
         await resend.emails.send({
             from: 'onboarding@resend.dev',
-            to: orderData.email, // Sends to the buyer
+            to: orderData.email,
             subject: `Order Confirmation`,
-            html: `<p>Thank you for your order, ${orderData.name}.</p><p>I'll be shipping your items to ${orderData.address} shortly.</p>`
+            html: `<p>Hi ${orderData.name},</p><p>Thanks for your order of <strong>${prettyItemList}</strong>.</p><p>It will be shipped to ${orderData.address} soon.</p>`
         });
 
         return { statusCode: 200, body: JSON.stringify({ success: true }) };
     } catch (err) {
-        console.error('Processing Error:', err);
+        console.error('Error:', err);
         return { statusCode: 500 };
     }
 };

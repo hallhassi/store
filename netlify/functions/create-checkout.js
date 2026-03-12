@@ -50,17 +50,28 @@ exports.handler = async (event) => {
         // 2. Create Stripe Session
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
-            line_items: [{
-                price_data: {
-                    currency: 'usd',
-                    product_data: { name: 'Order from Blaise Larmee' },
-                    unit_amount: Math.round(finalTotal * 100), // Stripe uses cents
-                },
-                quantity: 1,
-            }],
-            mode: 'payment',
-            success_url: `${process.env.URL}/success`, // Create a success.html later
-            cancel_url: `${process.env.URL}/`,
+    shipping_address_collection: {
+        allowed_countries: ['US', 'CA', 'GB'], // Add any countries you support
+    },
+    metadata: {
+        order_details: Object.entries(cart)
+            .map(([id, item]) => {
+                const book = allBooks.find(b => b.id === id);
+                return `${item.qty}x ${book ? book.title : id}`;
+            })
+            .join(', ')
+    },
+    line_items: [{
+        price_data: {
+            currency: 'usd',
+            product_data: { name: 'Order from Blaise Larmee' },
+            unit_amount: Math.round(finalTotal * 100),
+        },
+        quantity: 1,
+    }],
+    mode: 'payment',
+    success_url: `${process.env.URL}/success`,
+    cancel_url: `${process.env.URL}/`,
         });
 
         return {

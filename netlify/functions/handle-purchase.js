@@ -52,8 +52,8 @@ exports.handler = async (event) => {
 
             // 2. Send Email to YOU (The Merchant)
             await resend.emails.send({
-                from: 'Store Bot <bot@yourdomain.com>',
-                to: 'blaise@yourdomain.com', // Your email
+                from: 'onboarding@resend.dev',
+                to: 'hallhassi@gmail.com', // Your email
                 subject: `New Order: ${customerName}`,
                 text: `Items: ${orderItems}\n\nShip to:\n${customerName}\n${addressString}`,
                 html: `<p><strong>Items:</strong> ${orderItems}</p><p><strong>Ship to:</strong><br>${customerName}<br>${addressString}</p>`
@@ -61,8 +61,8 @@ exports.handler = async (event) => {
 
             // 3. Send Email to CUSTOMER (The Receipt)
             await resend.emails.send({
-                from: 'Blaise Larmee <blaise@yourdomain.com>',
-                to: customerEmail,
+                from: 'onboarding@resend.dev',
+                to: 'hallhassi@gmail.com',
                 subject: 'Order Confirmation',
                 text: `Thank you for your order. I'll be shipping ${orderItems} to you shortly.`,
                 html: `<p>Thank you for your order.</p><p>I'll be shipping <strong>${orderItems}</strong> to you shortly.</p>`

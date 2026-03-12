@@ -179,32 +179,30 @@ function updateTotal() {
 }
 
 async function handleCheckout() {
-    const region = document.querySelector('input[name="region"]:checked').value;
-    const method = document.querySelector('input[name="method"]:checked').value;
+    const region = document.querySelector('input[name="region"]:checked')?.value;
+    const method = document.querySelector('input[name="method"]:checked')?.value;
     const checkoutBtn = document.querySelector('#checkout-section button');
-    
-    checkoutBtn.disabled = true;
-    checkoutBtn.innerText = 'verifying...';
 
-    try {
-        const res = await fetch('/.netlify/functions/calculate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cart, region, method })
-        });
-        
-        if (res.ok) {
-            const verified = await res.json();
-            if (method === 'zelle') {
-                alert(`Please Zelle $${verified.total.toFixed(2)} to your@email.com`);
-            } else {
-                // Future Stripe/PayPal redirect logic
-                console.log("Verified total:", verified.total);
-            }
-        }
-    } catch (err) {
-        alert("Verification failed. Please try again.");
-    } finally {
+    if (method === 'zelle') {
+        const result = calculateLocally();
+        alert(`Please Zelle $${result.total.toFixed(2)} to your@email.com`);
+        return;
+    }
+
+    checkoutBtn.disabled = true;
+    checkoutBtn.innerText = 'redirecting...';
+
+    const res = await fetch('/.netlify/functions/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart, region, method })
+    });
+
+    const data = await res.json();
+    if (data.url) {
+        window.location.href = data.url;
+    } else {
+        alert("Checkout failed: " + (data.error || "Unknown error"));
         checkoutBtn.disabled = false;
         checkoutBtn.innerText = 'checkout';
     }

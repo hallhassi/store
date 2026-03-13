@@ -237,46 +237,29 @@ async function handleCheckout() {
         checkoutBtn.innerText = 'checkout';
     }
 }
-function renderPayPal() {
-    // Clear container
+
+        function renderPayPal() {
+    // 1. Grab the value from your specific 'region' name attribute
+    const selectedInput = document.querySelector('input[name="region"]:checked');
+    const region = selectedInput.value; // This pulls "usa", "canada", or "row"
+
     const container = document.getElementById('paypal-button-container');
     container.innerHTML = '';
 
     paypal.Buttons({
-        // THIS is the key: capture the region BEFORE the async call starts
-        onClick: (data, actions) => {
-            const selected = document.querySelector('input[name="shipping_type"]:checked');
-            if (!selected) {
-                alert("Please select shipping first.");
-                return actions.reject(); // Prevents the popup from opening
-            }
-            // Store it in a variable accessible to the next function
-            window.currentShippingRegion = selected.getAttribute('data-region') || selected.dataset.region;
-            return actions.resolve();
-        },
-
         createOrder: async (data, actions) => {
-            // Use the variable we just saved in onClick
-            const region = window.currentShippingRegion;
-
             const response = await fetch('/.netlify/functions/create-checkout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cart: cart, region: region, method: 'paypal' })
+                body: JSON.stringify({ cart, region, method: 'paypal' })
             });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to create checkout');
-            }
 
             const result = await response.json();
 
             return actions.order.create({
                 purchase_units: [{
                     amount: {
-                        currency_code: 'USD',
-                        value: result.total.toString() // e.g., "15.42"
+                        value: result.total.toString()
                     }
                 }]
             });
@@ -284,12 +267,18 @@ function renderPayPal() {
 
         onApprove: async (data, actions) => {
             const order = await actions.order.capture();
-            // Handle success...
-            window.location.href = '/?session=success';
-        },
+            
+            // Sync with your handle-purchase to decrement stock and email
+            await fetch('/.netlify/functions/handle-purchase', {
+                method: 'POST',
+                body: JSON.stringify({
+                    source: 'paypal',
+                    details: order,
+                    cart: cart 
+                })
+            });
 
-        onError: (err) => {
-            console.error('PayPal Error:', err);
+            window.location.href = '/?session=success';
         }
     }).render('#paypal-button-container');
 }

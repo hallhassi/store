@@ -195,8 +195,11 @@ let buyButton = '';
                     : `<button onclick="addToCart('${book.id}')">buy</button>`;
         }
 
-        return `
+return `
             <li style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+                <div class="product-images" style="margin-bottom: 10px;">
+                    ${imagesHtml}
+                </div>
                 <strong>${book.title}</strong> - $${book.price}
                 ${adminTools}
                 <div style="margin-top: 5px;">${buyButton}</div>

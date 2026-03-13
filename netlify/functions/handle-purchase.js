@@ -8,23 +8,32 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 exports.handler = async (event) => {
     let orderData = {};
 
-    // --- 1. PARSE INCOMING DATA ---
+    // --- Webhook Parsing & Normalization ---
     if (event.headers['stripe-signature']) {
         try {
-            const stripeEvent = stripe.webhooks.constructEvent(event.body, event.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
+            const stripeEvent = stripe.webhooks.constructEvent(
+                event.body, 
+                event.headers['stripe-signature'], 
+                process.env.STRIPE_WEBHOOK_SECRET
+            );
+
             if (stripeEvent.type !== 'checkout.session.completed') return { statusCode: 200 };
+
             const session = stripeEvent.data.object;
             orderData = {
-                rawItems: session.metadata.order_details, // "uuid:qty,uuid:qty"
+                rawItems: session.metadata.order_details,
                 email: session.customer_details.email,
                 name: session.customer_details.name,
                 address: `${session.shipping_details.address.line1}, ${session.shipping_details.address.city}, ${session.shipping_details.address.postal_code}`,
                 source: 'stripe'
             };
-        } catch (err) { return { statusCode: 400 }; }
+        } catch (err) { 
+            return { statusCode: 400 }; 
+        }
     } else {
         const body = JSON.parse(event.body);
         if (body.source !== 'paypal') return { statusCode: 400 };
+
         const ship = body.details.purchase_units[0].shipping;
         orderData = {
             rawItems: Object.entries(body.cart).map(([id, item]) => `${id}:${item.qty}`).join(','),
@@ -36,31 +45,29 @@ exports.handler = async (event) => {
     }
 
     try {
-        // --- 2. FETCH TITLES FOR PRETTY EMAILS ---
+        // --- Database Updates & Stock Management ---
         const itemPairs = orderData.rawItems.split(',');
         let displayItems = [];
         
         for (const pair of itemPairs) {
             const [id, qty] = pair.split(':');
             const { data: book } = await supabase.from('books').select('title').eq('id', id).single();
-            displayItems.push(`${qty}x ${book ? book.title : id}`);
             
-            // --- 3. DECREMENT STOCK ---
+            displayItems.push(`${qty}x ${book ? book.title : id}`);
             await supabase.rpc('decrement_stock', { row_id: id, amount: parseInt(qty) });
         }
+
         const prettyItemList = displayItems.join(', ');
 
-        // --- 4. RECORD ORDER IN DB ---
         await supabase.from('orders').insert([{
             customer_name: orderData.name,
             customer_email: orderData.email,
             shipping_address: orderData.address,
-            items: prettyItemList, // Now saves "1x Altcomics 7" instead of UUID
+            items: prettyItemList,
             source: orderData.source
         }]);
 
-        // --- 5. SEND EMAILS ---
-        // To Merchant
+        // --- Email Notifications ---
         await resend.emails.send({
             from: 'onboarding@resend.dev',
             to: 'hallhassi@gmail.com',
@@ -68,7 +75,6 @@ exports.handler = async (event) => {
             html: `<p><strong>Items:</strong> ${prettyItemList}</p><p><strong>Ship to:</strong> ${orderData.address}</p>`
         });
 
-        // To Customer (Will only work for non-account emails if domain is verified)
         await resend.emails.send({
             from: 'onboarding@resend.dev',
             to: orderData.email,
@@ -78,7 +84,6 @@ exports.handler = async (event) => {
 
         return { statusCode: 200, body: JSON.stringify({ success: true }) };
     } catch (err) {
-        console.error('Error:', err);
         return { statusCode: 500 };
     }
 };

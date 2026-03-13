@@ -238,30 +238,45 @@ async function handleCheckout() {
         checkoutBtn.innerText = 'checkout';
     }
 }
-
-        function renderPayPal() {
+function renderPayPal() {
     paypal.Buttons({
-        style: { layout: 'vertical', color: 'white', shape: 'rect', label: 'paypal' },
-        createOrder: (data, actions) => {
-            const result = calculateLocally();
+        style: { layout: 'vertical', color: 'white', shape: 'rect' },
+        createOrder: async () => {
+            // Get the server-side calculated total
+            const response = await fetch('/.netlify/functions/create-checkout', {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    cart, 
+                    region: document.querySelector('input[name="shipping_type"]:checked').dataset.region,
+                    method: 'paypal' 
+                })
+            });
+            const data = await response.json();
+
+            return fetch('https://api-m.sandbox.paypal.com/v2/checkout/orders', { // Use live URL for production
+                method: 'POST',
+                // ... (standard PayPal order creation using data.total)
+            });
+            
+            // Simplified for the Smart Button SDK:
             return actions.order.create({
-                purchase_units: [{ amount: { value: result.total.toFixed(2) } }]
+                purchase_units: [{ amount: { value: data.total.toString() } }]
             });
         },
         onApprove: async (data, actions) => {
             const order = await actions.order.capture();
             
-            // Send PayPal data to the SAME function Stripe uses
+            // Send to handle-purchase to decrement stock and email
             await fetch('/.netlify/functions/handle-purchase', {
                 method: 'POST',
                 body: JSON.stringify({
                     source: 'paypal',
-                    orderID: order.id,
                     details: order,
-                    cart: cart // your local cart object
+                    cart: cart 
                 })
             });
-window.location.href = '/?session=success';        }
+            window.location.href = '/?session=success';
+        }
     }).render('#paypal-button-container');
 }
         

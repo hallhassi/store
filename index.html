@@ -85,7 +85,7 @@ async function init() {
 
     // --- Conditional Admin Fetch ---
     const adminKey = localStorage.getItem('admin_key');
-    let booksQuery = db.from('books').select('*');
+    let booksQuery = db.from('books').select('*').order('created_at', { ascending: false });
     
     // If no key, only show public books
     if (!adminKey) {

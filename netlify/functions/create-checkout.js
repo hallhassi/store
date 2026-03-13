@@ -61,7 +61,12 @@ const roundedTotal = parseFloat(finalTotal.toFixed(2));
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
     shipping_address_collection: {
-        allowed_countries: ['US', 'CA', 'GB'], // Add any countries you support
+        allowed_countries: allowed_countries: [
+  'US', 'CA', 'GB', 'AU', 'AT', 'BE', 'BR', 'BG', 'CL', 'HR', 'CY', 'CZ', 'DK', 
+  'EE', 'FI', 'FR', 'DE', 'GI', 'GR', 'HK', 'HU', 'IS', 'ID', 'IE', 'IL', 'IT', 
+  'JP', 'LV', 'LT', 'LU', 'MY', 'MT', 'MX', 'NL', 'NZ', 'NO', 'PL', 'PT', 'RO', 
+  'SG', 'SK', 'SI', 'ES', 'SE', 'CH', 'TH', 'TR', 'VN'
+],
     },
 metadata: {
     // This creates a string like: "uuid-123:1,uuid-456:2"

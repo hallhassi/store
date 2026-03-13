@@ -46,7 +46,17 @@ exports.handler = async (event) => {
         let finalTotal = subtotal + shipping;
         if (method === 'card') finalTotal = (finalTotal + 0.30) / (1 - 0.029);
         if (method === 'paypal') finalTotal = (finalTotal + 0.49) / (1 - 0.044);
-
+const roundedTotal = parseFloat(finalTotal.toFixed(2));
+        // 1. If PayPal, return the total directly
+        if (method === 'paypal') {
+            return {
+                statusCode: 200,
+                body: JSON.stringify({ 
+                    total: roundedTotal,
+                    status: 'ready' 
+                })
+            };
+        }
         // 2. Create Stripe Session
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],

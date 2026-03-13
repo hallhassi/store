@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h3>admin login</h3>
+    <input type="password" id="pw" placeholder="password">
+    <button onclick="login()">login</button>
+
+    <script>
+        function login() {
+            const pass = document.getElementById('pw').value;
+            // You can set any "secret" here
+            localStorage.setItem('admin_key', pass);
+            window.location.href = '/admin.html';
+        }
+    </script>
+</body>
+</html>

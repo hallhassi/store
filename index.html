@@ -238,34 +238,38 @@ async function handleCheckout() {
     }
 }
 function renderPayPal() {
+    // Clear the container first to avoid double-rendering
+    document.getElementById('paypal-button-container').innerHTML = '';
+
     paypal.Buttons({
-        style: { layout: 'vertical', color: 'white', shape: 'rect' },
+        style: { layout: 'vertical', color: 'white', shape: 'rect', label: 'paypal' },
+        
+        // This runs when the user clicks the button
         createOrder: async () => {
-            // Get the server-side calculated total
+            const region = document.querySelector('input[name="shipping_type"]:checked').dataset.region;
+            
+            // 1. Get the "Official" price from your Netlify function
             const response = await fetch('/.netlify/functions/create-checkout', {
                 method: 'POST',
-                body: JSON.stringify({ 
-                    cart, 
-                    region: document.querySelector('input[name="shipping_type"]:checked').dataset.region,
-                    method: 'paypal' 
-                })
+                body: JSON.stringify({ cart, region, method: 'paypal' })
             });
             const data = await response.json();
 
-            return fetch('https://api-m.sandbox.paypal.com/v2/checkout/orders', { // Use live URL for production
-                method: 'POST',
-                // ... (standard PayPal order creation using data.total)
-            });
-            
-            // Simplified for the Smart Button SDK:
+            // 2. Tell PayPal how much to charge
             return actions.order.create({
-                purchase_units: [{ amount: { value: data.total.toString() } }]
+                purchase_units: [{
+                    amount: {
+                        value: data.total.toString() // e.g. "15.42"
+                    }
+                }]
             });
         },
+
+        // This runs after the user finishes in the PayPal popup
         onApprove: async (data, actions) => {
             const order = await actions.order.capture();
             
-            // Send to handle-purchase to decrement stock and email
+            // 3. Send the result to handle-purchase to update Supabase & Email
             await fetch('/.netlify/functions/handle-purchase', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -274,6 +278,7 @@ function renderPayPal() {
                     cart: cart 
                 })
             });
+
             window.location.href = '/?session=success';
         }
     }).render('#paypal-button-container');

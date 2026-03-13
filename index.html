@@ -123,10 +123,10 @@ if (adminKey) {
                 const book = inventory.find(b => b.id === id);
                 if (book) {
                     const itemTotal = book.price * cart[id].qty;
+const qtyDisplay = cart[id].qty > 1 ? `${cart[id].qty}x ` : '';
                     subtotal += itemTotal;
                     totalGrams += (book.weight * cart[id].qty);
-                    breakdown.push(`$${itemTotal} ${cart[id].qty}x ${book.title}`);
-                }
+breakdown.push(`$${itemTotal} ${qtyDisplay}${book.title}`);                }
             });
 
             const weightLbs = (totalGrams / 453.592) * 1.2;
@@ -186,14 +186,17 @@ function render() {
 
         // --- Standard Buy Button ---
 let buyButton = ''; 
-        if (!isAdmin) {
-            buyButton = book.stock <= 0 
-                ? `<button disabled>out of stock</button>` 
-                : inCart 
-                    ? `<button onclick="updateQty('${book.id}', 0)">remove</button> 
-                       <input type="number" value="${inCart.qty}" min="1" style="width: 40px;" onchange="updateQty('${book.id}', this.value)">` 
-                    : `<button onclick="addToCart('${book.id}')">buy</button>`;
-        }
+if (!isAdmin) {
+    buyButton = book.stock <= 0 
+        ? `<button disabled>out of stock</button>` 
+        : inCart 
+            ? `<button onclick="updateQty('${book.id}', 0)">remove</button>
+               ${book.stock > 1 
+                   ? `<input type="number" value="${inCart.qty}" min="1" max="${book.stock}" style="width: 40px;" onchange="updateQty('${book.id}', this.value)">` 
+                   : '' // Hide input if only 1 is in stock
+               }` 
+            : `<button onclick="addToCart('${book.id}')">buy</button>`;
+}
 
 return `
             <li style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">

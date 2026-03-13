@@ -70,7 +70,7 @@
             }
             
             const [booksReq, ratesReq] = await Promise.all([
-                db.from('books').select('*'),
+                db.from('books').select('*').eq('is_public', true),
                 db.from('shipping_rates').select('*')
             ]);
             if (booksReq.error || ratesReq.error) return;

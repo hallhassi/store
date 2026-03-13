@@ -170,7 +170,7 @@ function render() {
         // --- Image Rendering ---
         // Handle multiple images (default to empty array if null)
         const imagesHtml = (book.image_urls || []).map(url => 
-            `<img src="${url}" style="width: 50px; height: auto; margin-right: 5px;">`
+            `<img src="${url}">`
         ).join('');
 
         // --- Admin Controls ---
@@ -351,7 +351,20 @@ function render() {
         }
 
         // 2. Prepare data for Supabase
-        const bookData = { title, price, stock, weight, is_public, image_urls: imageUrls };
+// Inside your saveBook function, update the bookData object:
+const bookData = { 
+    title, 
+    price, 
+    stock, 
+    weight, 
+    is_public, 
+    image_urls: imageUrls 
+};
+
+// If we are editing, we MUST include the existing ID
+if (editingBookId) {
+    bookData.id = editingBookId;
+}
 
         // 3. Send to our secure Netlify bridge
         const res = await fetch('/.netlify/functions/manage-books', {
@@ -409,6 +422,32 @@ function hideForm() {
     } catch (err) {
         alert('Error: ' + err.message);
     }
+}
+
+        let editingBookId = null; // Track if we are editing or creating new
+
+function editBook(id) {
+    const book = inventory.find(b => b.id === id);
+    if (!book) return;
+
+    editingBookId = id; // Set the ID so saveBook knows to update, not create
+
+    // Fill the form with existing data
+    document.getElementById('f-title').value = book.title;
+    document.getElementById('f-price').value = book.price;
+    document.getElementById('f-stock').value = book.stock;
+    document.getElementById('f-weight').value = book.weight;
+    document.getElementById('f-public').checked = book.is_public;
+    
+    // Show the form
+    showCreateForm();
+    document.querySelector('#admin-form-container h3').innerText = 'edit book';
+}
+
+function showCreateForm() {
+    editingBookId = null; // Reset for a clean "New Book"
+    document.getElementById('admin-form-container').style.display = 'block';
+    document.querySelector('#admin-form-container h3').innerText = 'add new book';
 }
         
         init();

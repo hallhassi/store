@@ -4,8 +4,8 @@ const { createClient } = require('@supabase/supabase-js');
 exports.handler = async (event) => {
     try {
         const { cart, region, method } = JSON.parse(event.body);
-        
         const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        
         const [booksReq, ratesReq] = await Promise.all([
             supabase.from('books').select('*'),
             supabase.from('shipping_rates').select('*')
@@ -16,7 +16,7 @@ exports.handler = async (event) => {
         let subtotal = 0;
         let totalGrams = 0;
 
-        // 1. Math Logic (Synced with your local version)
+        // --- Calculate Totals & Weight ---
         Object.keys(cart).forEach(id => {
             const book = allBooks.find(b => b.id === id);
             if (book) {
@@ -29,6 +29,7 @@ exports.handler = async (event) => {
         let shipping = 0;
         const searchRegion = region.toLowerCase();
 
+        // --- Shipping Logic ---
         if (searchRegion === 'usa') {
             const base = allRates.find(r => r.region.toLowerCase() === 'usa' && r.is_base_rate);
             const extra = allRates.find(r => r.region.toLowerCase() === 'usa' && !r.is_base_rate);
@@ -43,11 +44,13 @@ exports.handler = async (event) => {
             }
         }
 
+        // --- Payment Processing Fee Logic ---
         let finalTotal = subtotal + shipping;
         if (method === 'card') finalTotal = (finalTotal + 0.30) / (1 - 0.029);
         if (method === 'paypal') finalTotal = (finalTotal + 0.49) / (1 - 0.044);
-const roundedTotal = parseFloat(finalTotal.toFixed(2));
-        // 1. If PayPal, return the total directly
+        
+        const roundedTotal = parseFloat(finalTotal.toFixed(2));
+
         if (method === 'paypal') {
             return {
                 statusCode: 200,
@@ -57,34 +60,35 @@ const roundedTotal = parseFloat(finalTotal.toFixed(2));
                 })
             };
         }
-        // 2. Create Stripe Session
+
+        // --- Stripe Session Creation ---
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
-    shipping_address_collection: {
-        allowed_countries: [
-  'US', 'CA', 'GB', 'AU', 'AT', 'BE', 'BR', 'BG', 'CL', 'HR', 'CY', 'CZ', 'DK', 
-  'EE', 'FI', 'FR', 'DE', 'GI', 'GR', 'HK', 'HU', 'IS', 'ID', 'IE', 'IL', 'IT', 
-  'JP', 'LV', 'LT', 'LU', 'MY', 'MT', 'MX', 'NL', 'NZ', 'NO', 'PL', 'PT', 'RO', 
-  'SG', 'SK', 'SI', 'ES', 'SE', 'CH', 'TH', 'TR', 'VN'
-],
-    },
-metadata: {
-    // This creates a string like: "uuid-123:1,uuid-456:2"
-    order_details: Object.entries(cart)
-        .map(([id, item]) => `${id}:${item.qty}`)
-        .join(',')
-},
-    line_items: [{
-        price_data: {
-            currency: 'usd',
-            product_data: { name: 'Order from Blaise Larmee' },
-            unit_amount: Math.round(finalTotal * 100),
-        },
-        quantity: 1,
-    }],
-    mode: 'payment',
-success_url: `${process.env.URL}/?session=success`, 
-    cancel_url: `${process.env.URL}/`,        });
+            shipping_address_collection: {
+                allowed_countries: [
+                    'US', 'CA', 'GB', 'AU', 'AT', 'BE', 'BR', 'BG', 'CL', 'HR', 'CY', 'CZ', 'DK', 
+                    'EE', 'FI', 'FR', 'DE', 'GI', 'GR', 'HK', 'HU', 'IS', 'ID', 'IE', 'IL', 'IT', 
+                    'JP', 'LV', 'LT', 'LU', 'MY', 'MT', 'MX', 'NL', 'NZ', 'NO', 'PL', 'PT', 'RO', 
+                    'SG', 'SK', 'SI', 'ES', 'SE', 'CH', 'TH', 'TR', 'VN'
+                ],
+            },
+            metadata: {
+                order_details: Object.entries(cart)
+                    .map(([id, item]) => `${id}:${item.qty}`)
+                    .join(',')
+            },
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: { name: 'Order from Blaise Larmee' },
+                    unit_amount: Math.round(finalTotal * 100),
+                },
+                quantity: 1,
+            }],
+            mode: 'payment',
+            success_url: `${process.env.URL}/?session=success`, 
+            cancel_url: `${process.env.URL}/`,
+        });
 
         return {
             statusCode: 200,
@@ -92,7 +96,9 @@ success_url: `${process.env.URL}/?session=success`,
         };
 
     } catch (err) {
-        console.error(err);
-        return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+        return { 
+            statusCode: 500, 
+            body: JSON.stringify({ error: err.message }) 
+        };
     }
 };

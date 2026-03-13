@@ -346,11 +346,20 @@ let buyButton = '';
     const is_public = document.getElementById('f-public').checked;
     const imageFiles = document.getElementById('f-images').files;
 
-    try {
-        // 1. Upload images if any are selected
+try {
+        const imageFiles = document.getElementById('f-images').files;
         let imageUrls = [];
+
+        // 1. If we are EDITING, get the existing URLs from the inventory first
+        if (editingBookId) {
+            const currentBook = inventory.find(b => b.id === editingBookId);
+            imageUrls = currentBook.image_urls || [];
+        }
+
+        // 2. If NEW files are selected, upload them and ADD them to the list
         if (imageFiles.length > 0) {
-            imageUrls = await uploadImages(imageFiles);
+            const newUrls = await uploadImages(imageFiles);
+            imageUrls = [...imageUrls, ...newUrls]; // Keep old ones + add new ones
         }
 
         // 2. Prepare data for Supabase

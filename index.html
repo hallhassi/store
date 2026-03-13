@@ -14,8 +14,9 @@
 <body>
 <div id="admin-panel" class="hidden">
     <button onclick="showCreateForm()">+ add new book</button>
+<button onclick="logout()">logout</button>
 </div>
-    <div id="admin-form-container" style="display:none; border: 1px solid #ccc; padding: 20px; margin-bottom: 20px;">
+    <div id="admin-form-container" class="hidden">
     <h3>add/edit book</h3>
     <input type="text" id="f-title" placeholder="title"><br>
     <input type="number" id="f-price" placeholder="price"><br>
@@ -184,16 +185,18 @@ function render() {
         ` : '';
 
         // --- Standard Buy Button ---
-        const buyButton = book.stock <= 0 
-            ? `<button disabled>out of stock</button>` 
-            : inCart 
-                ? `<button onclick="updateQty('${book.id}', 0)">remove</button> 
-                   <input type="number" value="${inCart.qty}" min="1" style="width: 40px;" onchange="updateQty('${book.id}', this.value)">` 
-                : `<button onclick="addToCart('${book.id}')">buy</button>`;
+let buyButton = ''; 
+        if (!isAdmin) {
+            buyButton = book.stock <= 0 
+                ? `<button disabled>out of stock</button>` 
+                : inCart 
+                    ? `<button onclick="updateQty('${book.id}', 0)">remove</button> 
+                       <input type="number" value="${inCart.qty}" min="1" style="width: 40px;" onchange="updateQty('${book.id}', this.value)">` 
+                    : `<button onclick="addToCart('${book.id}')">buy</button>`;
+        }
 
         return `
             <li style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
-                <div>${imagesHtml}</div>
                 <strong>${book.title}</strong> - $${book.price}
                 ${adminTools}
                 <div style="margin-top: 5px;">${buyButton}</div>
@@ -393,11 +396,11 @@ if (editingBookId) {
         
     // Simple toggle functions
 function showCreateForm() {
-    document.getElementById('admin-form-container').style.display = 'block';
+    document.getElementById('admin-form-container').classList.remove('hidden');
 }
 
 function hideForm() {
-    document.getElementById('admin-form-container').style.display = 'none';
+    document.getElementById('admin-form-container').classList.add('hidden');
     // Optional: Clear inputs here so they are fresh for next time
 }
 
@@ -448,6 +451,11 @@ function showCreateForm() {
     editingBookId = null; // Reset for a clean "New Book"
     document.getElementById('admin-form-container').style.display = 'block';
     document.querySelector('#admin-form-container h3').innerText = 'add new book';
+}
+
+        function logout() {
+    localStorage.removeItem('admin_key');
+    window.location.href = '/';
 }
         
         init();

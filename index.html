@@ -96,7 +96,6 @@ async function init() {
     window.allRates = ratesReq.data || []; 
     
     render();
-    renderPayPal(); // Initialize PayPal in the background
 }
 
 function calculateLocally() {
@@ -202,6 +201,7 @@ function updateTotal() {
     if (method === 'paypal') {
         stripeButton.classList.add('hidden');
         paypalContainer.classList.remove('hidden');
+        renderPayPal(); // Trigger the fresh button here
     } else {
         stripeButton.classList.remove('hidden');
         paypalContainer.classList.add('hidden');

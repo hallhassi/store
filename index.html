@@ -12,7 +12,9 @@
     </style>
 </head>
 <body>
-
+<div id="admin-panel" class="hidden">
+    <button onclick="showCreateForm()">+ add new book</button>
+</div>
     <div id="store-front">
         <h3 id="store-header">store</h3>
         <ul id="product-list"></ul>
@@ -57,27 +59,38 @@
         let cart = {}; 
 
         // --- Initialization & Data Fetching ---
-        async function init() {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('session') === 'success') {
-                localStorage.removeItem('cart'); 
-                cart = {};
-                const msg = document.createElement('p');
-                msg.id = 'success-msg';
-                msg.innerHTML = '<strong>order received. thank you.</strong>';
-                document.body.prepend(msg);
-                window.history.replaceState({}, document.title, "/");
-            }
-            
-            const [booksReq, ratesReq] = await Promise.all([
-                db.from('books').select('*').eq('is_public', true),
-                db.from('shipping_rates').select('*')
-            ]);
-            if (booksReq.error || ratesReq.error) return;
-            inventory = booksReq.data || [];
-            window.allRates = ratesReq.data || []; 
-            render();
-        }
+async function init() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('session') === 'success') {
+        localStorage.removeItem('cart'); 
+        cart = {};
+        const msg = document.createElement('p');
+        msg.id = 'success-msg';
+        msg.innerHTML = '<strong>order received. thank you.</strong>';
+        document.body.prepend(msg);
+        window.history.replaceState({}, document.title, "/");
+    }
+
+    // --- Conditional Admin Fetch ---
+    const adminKey = localStorage.getItem('admin_key');
+    let booksQuery = db.from('books').select('*');
+    
+    // If no key, only show public books
+    if (!adminKey) {
+        booksQuery = booksQuery.eq('is_public', true);
+    }
+
+    const [booksReq, ratesReq] = await Promise.all([
+        booksQuery,
+        db.from('shipping_rates').select('*')
+    ]);
+
+    if (booksReq.error || ratesReq.error) return;
+    
+    inventory = booksReq.data || [];
+    window.allRates = ratesReq.data || []; 
+    render();
+}
 
         // --- Core Calculation Logic ---
         function calculateLocally() {
@@ -133,13 +146,47 @@
         }
 
         // --- UI Rendering ---
-        function render() {
-            const list = document.getElementById('product-list');
-            list.innerHTML = inventory.map(book => {
-                const inCart = cart[book.id];
-                return `<li>${book.stock <= 0 ? `<button disabled>out of stock</button>` : inCart ? `<button onclick="updateQty('${book.id}', 0)">remove</button> <input type="number" value="${inCart.qty}" min="1" style="width: 40px;" onchange="updateQty('${book.id}', this.value)">` : `<button onclick="addToCart('${book.id}')">buy</button>`} $${book.price} ${book.title}</li>`;
-            }).join('');
-        }
+function render() {
+    const list = document.getElementById('product-list');
+    const isAdmin = !!localStorage.getItem('admin_key');
+
+    list.innerHTML = inventory.map(book => {
+        const inCart = cart[book.id];
+        
+        // --- Image Rendering ---
+        // Handle multiple images (default to empty array if null)
+        const imagesHtml = (book.image_urls || []).map(url => 
+            `<img src="${url}" style="width: 50px; height: auto; margin-right: 5px;">`
+        ).join('');
+
+        // --- Admin Controls ---
+        const adminTools = isAdmin ? `
+            <div style="background: #f4f4f4; padding: 5px; margin: 5px 0; font-size: 0.8em;">
+                <button onclick="editBook('${book.id}')">edit</button>
+                <button onclick="deleteBook('${book.id}')" style="color: red;">delete</button>
+                <span>Status: ${book.is_public ? '✅ public' : '🔒 private'}</span>
+                <span>Stock: ${book.stock}</span>
+            </div>
+        ` : '';
+
+        // --- Standard Buy Button ---
+        const buyButton = book.stock <= 0 
+            ? `<button disabled>out of stock</button>` 
+            : inCart 
+                ? `<button onclick="updateQty('${book.id}', 0)">remove</button> 
+                   <input type="number" value="${inCart.qty}" min="1" style="width: 40px;" onchange="updateQty('${book.id}', this.value)">` 
+                : `<button onclick="addToCart('${book.id}')">buy</button>`;
+
+        return `
+            <li style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+                <div>${imagesHtml}</div>
+                <strong>${book.title}</strong> - $${book.price}
+                ${adminTools}
+                <div style="margin-top: 5px;">${buyButton}</div>
+            </li>
+        `;
+    }).join('');
+}
 
         // --- Cart State Management ---
         function addToCart(id) {

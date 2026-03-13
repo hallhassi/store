@@ -238,48 +238,58 @@ async function handleCheckout() {
     }
 }
 function renderPayPal() {
-    // Clear the container first to avoid double-rendering
-    document.getElementById('paypal-button-container').innerHTML = '';
+    // Clear container
+    const container = document.getElementById('paypal-button-container');
+    container.innerHTML = '';
 
     paypal.Buttons({
-        style: { layout: 'vertical', color: 'white', shape: 'rect', label: 'paypal' },
-        
-        // This runs when the user clicks the button
-        createOrder: async () => {
-            const region = document.querySelector('input[name="shipping_type"]:checked').dataset.region;
-            
-            // 1. Get the "Official" price from your Netlify function
+        // THIS is the key: capture the region BEFORE the async call starts
+        onClick: (data, actions) => {
+            const selected = document.querySelector('input[name="shipping_type"]:checked');
+            if (!selected) {
+                alert("Please select shipping first.");
+                return actions.reject(); // Prevents the popup from opening
+            }
+            // Store it in a variable accessible to the next function
+            window.currentShippingRegion = selected.getAttribute('data-region') || selected.dataset.region;
+            return actions.resolve();
+        },
+
+        createOrder: async (data, actions) => {
+            // Use the variable we just saved in onClick
+            const region = window.currentShippingRegion;
+
             const response = await fetch('/.netlify/functions/create-checkout', {
                 method: 'POST',
-                body: JSON.stringify({ cart, region, method: 'paypal' })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cart: cart, region: region, method: 'paypal' })
             });
-            const data = await response.json();
 
-            // 2. Tell PayPal how much to charge
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Failed to create checkout');
+            }
+
+            const result = await response.json();
+
             return actions.order.create({
                 purchase_units: [{
                     amount: {
-                        value: data.total.toString() // e.g. "15.42"
+                        currency_code: 'USD',
+                        value: result.total.toString() // e.g., "15.42"
                     }
                 }]
             });
         },
 
-        // This runs after the user finishes in the PayPal popup
         onApprove: async (data, actions) => {
             const order = await actions.order.capture();
-            
-            // 3. Send the result to handle-purchase to update Supabase & Email
-            await fetch('/.netlify/functions/handle-purchase', {
-                method: 'POST',
-                body: JSON.stringify({
-                    source: 'paypal',
-                    details: order,
-                    cart: cart 
-                })
-            });
-
+            // Handle success...
             window.location.href = '/?session=success';
+        },
+
+        onError: (err) => {
+            console.error('PayPal Error:', err);
         }
     }).render('#paypal-button-container');
 }

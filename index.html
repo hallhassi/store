@@ -231,7 +231,7 @@ return `
             const totalSection = document.getElementById('total-section');
             const checkoutSection = document.getElementById('checkout-section');
             const paypalContainer = document.getElementById('paypal-button-container');
-            const stripeButton = document.querySelector('#checkout-section button');
+            const stripeContainer = document.querySelector('#checkout-section button').parentElement;
             const method = document.querySelector('input[name="method"]:checked')?.value;
 
             if (!result || result.breakdown.length === 0) {
@@ -246,11 +246,11 @@ return `
             checkoutSection.classList.remove('hidden');
 
             if (method === 'paypal') {
-                stripeButton.classList.add('hidden');
+                stripeContainer.classList.add('hidden');
                 paypalContainer.classList.remove('hidden');
                 renderPayPal();
             } else {
-                stripeButton.classList.remove('hidden');
+                stripeContainer.classList.remove('hidden');
                 paypalContainer.classList.add('hidden');
             }
         }

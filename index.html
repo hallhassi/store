@@ -166,8 +166,7 @@ function render() {
     const list = document.getElementById('product-list');
     const isAdmin = !!localStorage.getItem('admin_key');
     const getCdnUrl = (url, width) => {
-return `/.netlify/images?url=${url}&w=${width}&fit=contain`;
-    };
+return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&fit=contain`;    };
 
     list.innerHTML = inventory.map(book => {
         const inCart = cart[book.id];

@@ -412,11 +412,6 @@ if (editingBookId) {
 }
 
         
-    // Simple toggle functions
-function showCreateForm() {
-    document.getElementById('admin-form-container').classList.remove('hidden');
-}
-
 function hideForm() {
     document.getElementById('admin-form-container').classList.add('hidden');
     // Optional: Clear inputs here so they are fresh for next time
@@ -447,28 +442,34 @@ function hideForm() {
 
         let editingBookId = null; // Track if we are editing or creating new
 
+        // Change your showCreateForm to this:
+function showCreateForm() {
+    // Only reset if we aren't already editing something
+    if (!editingBookId) {
+        document.getElementById('f-title').value = '';
+        document.getElementById('f-price').value = '';
+        // ... reset other fields ...
+        document.querySelector('#admin-form-container h3').innerText = 'add new book';
+    }
+    document.getElementById('admin-form-container').style.display = 'block';
+}
+
+// Update your editBook function to set the ID FIRST:
 function editBook(id) {
     const book = inventory.find(b => b.id === id);
     if (!book) return;
 
-    editingBookId = id; // Set the ID so saveBook knows to update, not create
+    editingBookId = id; 
 
-    // Fill the form with existing data
     document.getElementById('f-title').value = book.title;
     document.getElementById('f-price').value = book.price;
     document.getElementById('f-stock').value = book.stock;
     document.getElementById('f-weight').value = book.weight;
     document.getElementById('f-public').checked = book.is_public;
     
-    // Show the form
-    showCreateForm();
-    document.querySelector('#admin-form-container h3').innerText = 'edit book';
-}
-
-function showCreateForm() {
-    editingBookId = null; // Reset for a clean "New Book"
+    // Open the form without resetting the ID
     document.getElementById('admin-form-container').style.display = 'block';
-    document.querySelector('#admin-form-container h3').innerText = 'add new book';
+    document.querySelector('#admin-form-container h3').innerText = 'edit book';
 }
 
         function logout() {

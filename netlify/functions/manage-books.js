@@ -18,10 +18,10 @@ exports.handler = async (event) => {
         let result;
         if (event.httpMethod === 'POST') {
             // Create or Update logic
-            result = await supabase.from('books').upsert(data);
+            result = await supabase.from('products').upsert(data);
         } else if (event.httpMethod === 'DELETE') {
             // Delete logic
-            result = await supabase.from('books').delete().eq('id', data.id);
+            result = await supabase.from('products').delete().eq('id', data.id);
         }
 
         return {

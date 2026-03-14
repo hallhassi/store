@@ -6,19 +6,19 @@ exports.handler = async (event) => {
         const { cart, region, method } = JSON.parse(event.body);
         const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
         
-        const [booksReq, ratesReq] = await Promise.all([
-            supabase.from('books').select('*'),
+        const [productsReq, ratesReq] = await Promise.all([
+            supabase.from('products').select('*'),
             supabase.from('shipping_rates').select('*')
         ]);
 
-        const allBooks = booksReq.data;
+        const allProducts = productsReq.data;
         const allRates = ratesReq.data;
         let subtotal = 0;
         let totalGrams = 0;
 
         // --- Calculate Totals & Weight ---
         Object.keys(cart).forEach(id => {
-            const book = allBooks.find(b => b.id === id);
+            const book = allProducts.find(b => b.id === id);
             if (book) {
                 subtotal += book.price * cart[id].qty;
                 totalGrams += book.weight * cart[id].qty;

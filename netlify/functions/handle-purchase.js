@@ -51,7 +51,7 @@ exports.handler = async (event) => {
         
         for (const pair of itemPairs) {
             const [id, qty] = pair.split(':');
-            const { data: book } = await supabase.from('books').select('title').eq('id', id).single();
+            const { data: book } = await supabase.from('products').select('title').eq('id', id).single();
             
             displayItems.push(`${qty}x ${book ? book.title : id}`);
             await supabase.rpc('decrement_stock', { row_id: id, amount: parseInt(qty) });

@@ -22,7 +22,7 @@
     <input type="number" id="f-price" placeholder="price"><br>
     <input type="number" id="f-stock" placeholder="stock"><br>
     <input type="number" id="f-weight" placeholder="weight (grams)"><br>
-    <label><input type="checkbox" id="f-public"> public?</label><br>
+    <label><input type="checkbox" id="f-public" checked> public?</label><br>
     <input type="file" id="f-images" multiple accept="image/*"><br><br>
     <button onclick="saveBook()">save book</button>
     <button onclick="hideForm()">cancel</button>
@@ -161,17 +161,22 @@ breakdown.push(`$${itemTotal} ${qtyDisplay}${book.title}`);                }
         }
 
         // --- UI Rendering ---
+// --- UI Rendering ---
 function render() {
     const list = document.getElementById('product-list');
     const isAdmin = !!localStorage.getItem('admin_key');
+
+    const getCdnUrl = (url, width) => {
+return `/.netlify/images?url=${url}&w=${width}&fit=scale-down`;
+    };
 
     list.innerHTML = inventory.map(book => {
         const inCart = cart[book.id];
         
         // --- Image Rendering ---
-        // Handle multiple images (default to empty array if null)
+        // We use width=300 for the general list view
         const imagesHtml = (book.image_urls || []).map(url => 
-            `<img src="${url}">`
+            `<img src="${getCdnUrl(url, 300)}" loading="lazy" style="max-width: 100%; height: auto;">`
         ).join('');
 
         // --- Admin Controls ---
@@ -185,20 +190,20 @@ function render() {
         ` : '';
 
         // --- Standard Buy Button ---
-let buyButton = ''; 
-if (!isAdmin) {
-    buyButton = book.stock <= 0 
-        ? `<button disabled>out of stock</button>` 
-        : inCart 
-            ? `<button onclick="updateQty('${book.id}', 0)">remove</button>
-               ${book.stock > 1 
-                   ? `<input type="number" value="${inCart.qty}" min="1" max="${book.stock}" style="width: 40px;" onchange="updateQty('${book.id}', this.value)">` 
-                   : '' // Hide input if only 1 is in stock
-               }` 
-            : `<button onclick="addToCart('${book.id}')">buy</button>`;
-}
+        let buyButton = ''; 
+        if (!isAdmin) {
+            buyButton = book.stock <= 0 
+                ? `<button disabled>out of stock</button>` 
+                : inCart 
+                    ? `<button onclick="updateQty('${book.id}', 0)">remove</button>
+                       ${book.stock > 1 
+                           ? `<input type="number" value="${inCart.qty}" min="1" max="${book.stock}" style="width: 40px;" onchange="updateQty('${book.id}', this.value)">` 
+                           : '' 
+                       }` 
+                    : `<button onclick="addToCart('${book.id}')">buy</button>`;
+        }
 
-return `
+        return `
             <li style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
                 <div class="product-images" style="margin-bottom: 10px;">
                     ${imagesHtml}

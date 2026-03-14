@@ -1,2 +1,2 @@
-[[images.remote_images]]
-  domain = "numeejvkeadsucxwsecn.supabase.co"
+[images]
+  remote_images = ["https://numeejvkeadsucxwsecn.supabase.co/.*"]

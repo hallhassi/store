@@ -1,2 +1,2 @@
 [[images.remote_images]]
-  path = "https://numeejvkeadsucxwsecn.supabase.co/storage/v1/object/public/**"
+domain = "numeejvkeadsucxwsecn.supabase.co"

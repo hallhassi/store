@@ -85,24 +85,24 @@ async function init() {
 
     // --- Conditional Admin Fetch ---
     const adminKey = localStorage.getItem('admin_key');
-    let booksQuery = db.from('books').select('*').order('created_at', { ascending: false });
+    let productsQuery = db.from('products').select('*').order('created_at', { ascending: false });
     
-    // If no key, only show public books
+    // If no key, only show public products
     if (!adminKey) {
-        booksQuery = booksQuery.eq('is_public', true);
+        productsQuery = productsQuery.eq('is_public', true);
     }
 if (adminKey) {
     document.getElementById('admin-panel').style.display = 'block';
 }
     
-    const [booksReq, ratesReq] = await Promise.all([
-        booksQuery,
+    const [productsReq, ratesReq] = await Promise.all([
+        productsQuery,
         db.from('shipping_rates').select('*')
     ]);
 
-    if (booksReq.error || ratesReq.error) return;
+    if (productsReq.error || ratesReq.error) return;
     
-    inventory = booksReq.data || [];
+    inventory = productsReq.data || [];
     window.allRates = ratesReq.data || []; 
     render();
 }
@@ -388,7 +388,7 @@ if (editingBookId) {
 }
 
         // 3. Send to our secure Netlify bridge
-        const res = await fetch('/.netlify/functions/manage-books', {
+        const res = await fetch('/.netlify/functions/manage-products', {
             method: 'POST',
             body: JSON.stringify({
                 key: localStorage.getItem('admin_key'),
@@ -421,7 +421,7 @@ function hideForm() {
     if (!confirm('Are you sure you want to delete this book?')) return;
 
     try {
-        const res = await fetch('/.netlify/functions/manage-books', {
+        const res = await fetch('/.netlify/functions/manage-products', {
             method: 'DELETE', // Our function logic handles this branch
             body: JSON.stringify({
                 key: localStorage.getItem('admin_key'),

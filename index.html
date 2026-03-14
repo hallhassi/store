@@ -13,18 +13,18 @@
 </head>
 <body>
 <div id="admin-panel" class="hidden">
-    <button onclick="showCreateForm()">+ add new book</button>
+    <button onclick="showCreateForm()">+ add new product</button>
 <button onclick="logout()">logout</button>
 </div>
     <div id="admin-form-container" class="hidden">
-    <h3>add/edit book</h3>
+    <h3>add/edit product</h3>
     <input type="text" id="f-title" placeholder="title"><br>
     <input type="number" id="f-price" placeholder="price"><br>
     <input type="number" id="f-stock" placeholder="stock"><br>
     <input type="number" id="f-weight" placeholder="weight (grams)"><br>
     <label><input type="checkbox" id="f-public" checked> public?</label><br>
     <input type="file" id="f-images" multiple accept="image/*"><br><br>
-    <button onclick="saveBook()">save book</button>
+    <button onclick="saveProduct()">save product</button>
     <button onclick="hideForm()">cancel</button>
 </div>
     <div id="store-front">
@@ -120,13 +120,13 @@ if (adminKey) {
             let breakdown = [];
 
             Object.keys(cart).forEach(id => {
-                const book = inventory.find(b => b.id === id);
-                if (book) {
-                    const itemTotal = book.price * cart[id].qty;
+                const product = inventory.find(b => b.id === id);
+                if (product) {
+                    const itemTotal = product.price * cart[id].qty;
 const qtyDisplay = cart[id].qty > 1 ? `${cart[id].qty}x ` : '';
                     subtotal += itemTotal;
-                    totalGrams += (book.weight * cart[id].qty);
-breakdown.push(`$${itemTotal} ${qtyDisplay}${book.title}`);                }
+                    totalGrams += (product.weight * cart[id].qty);
+breakdown.push(`$${itemTotal} ${qtyDisplay}${product.title}`);                }
             });
 
             const weightLbs = (totalGrams / 453.592) * 1.2;
@@ -168,37 +168,37 @@ function render() {
     const getCdnUrl = (url, width) => {
 return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&fit=contain`;    };
 
-    list.innerHTML = inventory.map(book => {
-        const inCart = cart[book.id];
+    list.innerHTML = inventory.map(product => {
+        const inCart = cart[product.id];
         
         // --- Image Rendering ---
         // We use width=300 for the general list view
-        const imagesHtml = (book.image_urls || []).map(url => 
+        const imagesHtml = (product.image_urls || []).map(url => 
             `<img src="${getCdnUrl(url, 300)}" loading="lazy" style="max-width: 100%; height: auto;">`
         ).join('');
 
         // --- Admin Controls ---
         const adminTools = isAdmin ? `
             <div style="background: #f4f4f4; padding: 5px; margin: 5px 0; font-size: 0.8em;">
-                <button onclick="editBook('${book.id}')">edit</button>
-                <button onclick="deleteBook('${book.id}')" style="color: red;">delete</button>
-                <span>Status: ${book.is_public ? '✅ public' : '🔒 private'}</span>
-                <span>Stock: ${book.stock}</span>
+                <button onclick="editProduct('${product.id}')">edit</button>
+                <button onclick="deleteProduct('${product.id}')" style="color: red;">delete</button>
+                <span>Status: ${product.is_public ? '✅ public' : '🔒 private'}</span>
+                <span>Stock: ${product.stock}</span>
             </div>
         ` : '';
 
         // --- Standard Buy Button ---
         let buyButton = ''; 
         if (!isAdmin) {
-            buyButton = book.stock <= 0 
+            buyButton = product.stock <= 0 
                 ? `<button disabled>out of stock</button>` 
                 : inCart 
-                    ? `<button onclick="updateQty('${book.id}', 0)">remove</button>
-                       ${book.stock > 1 
-                           ? `<input type="number" value="${inCart.qty}" min="1" max="${book.stock}" style="width: 40px;" onchange="updateQty('${book.id}', this.value)">` 
+                    ? `<button onclick="updateQty('${product.id}', 0)">remove</button>
+                       ${product.stock > 1 
+                           ? `<input type="number" value="${inCart.qty}" min="1" max="${product.stock}" style="width: 40px;" onchange="updateQty('${product.id}', this.value)">` 
                            : '' 
                        }` 
-                    : `<button onclick="addToCart('${book.id}')">buy</button>`;
+                    : `<button onclick="addToCart('${product.id}')">buy</button>`;
         }
 
         return `
@@ -206,7 +206,7 @@ return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&fit=contain`;
                 <div class="product-images" style="margin-bottom: 10px;">
                     ${imagesHtml}
                 </div>
-                <strong>${book.title}</strong> - $${book.price}
+                <strong>${product.title}</strong> - $${product.price}
                 ${adminTools}
                 <div style="margin-top: 5px;">${buyButton}</div>
             </li>
@@ -343,7 +343,7 @@ return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&fit=contain`;
     return urls;
 }
 
-        async function saveBook() {
+        async function saveProduct() {
     const btn = event.target;
     btn.disabled = true;
     btn.innerText = 'saving...';
@@ -360,9 +360,9 @@ try {
         let imageUrls = [];
 
         // 1. If we are EDITING, get the existing URLs from the inventory first
-        if (editingBookId) {
-            const currentBook = inventory.find(b => b.id === editingBookId);
-            imageUrls = currentBook.image_urls || [];
+        if (editingProductId) {
+            const currentProduct = inventory.find(b => b.id === editingProductId);
+            imageUrls = currentProduct.image_urls || [];
         }
 
         // 2. If NEW files are selected, upload them and ADD them to the list
@@ -372,8 +372,8 @@ try {
         }
 
         // 2. Prepare data for Supabase
-// Inside your saveBook function, update the bookData object:
-const bookData = { 
+// Inside your saveProduct function, update the productData object:
+const productData = { 
     title, 
     price, 
     stock, 
@@ -383,8 +383,8 @@ const bookData = {
 };
 
 // If we are editing, we MUST include the existing ID
-if (editingBookId) {
-    bookData.id = editingBookId;
+if (editingProductId) {
+    productData.id = editingProductId;
 }
 
         // 3. Send to our secure Netlify bridge
@@ -392,7 +392,7 @@ if (editingBookId) {
             method: 'POST',
             body: JSON.stringify({
                 key: localStorage.getItem('admin_key'),
-                data: bookData
+                data: productData
             })
         });
 
@@ -407,7 +407,7 @@ if (editingBookId) {
         alert('error: ' + err.message);
     } finally {
         btn.disabled = false;
-        btn.innerText = 'save book';
+        btn.innerText = 'save product';
     }
 }
 
@@ -417,8 +417,8 @@ function hideForm() {
     // Optional: Clear inputs here so they are fresh for next time
 }
 
-    async function deleteBook(id) {
-    if (!confirm('Are you sure you want to delete this book?')) return;
+    async function deleteProduct(id) {
+    if (!confirm('Are you sure you want to delete this product?')) return;
 
     try {
         const res = await fetch('/.netlify/functions/manage-products', {
@@ -440,36 +440,36 @@ function hideForm() {
     }
 }
 
-        let editingBookId = null; // Track if we are editing or creating new
+        let editingProductId = null; // Track if we are editing or creating new
 
         // Change your showCreateForm to this:
 function showCreateForm() {
     // Only reset if we aren't already editing something
-    if (!editingBookId) {
+    if (!editingProductId) {
         document.getElementById('f-title').value = '';
         document.getElementById('f-price').value = '';
         // ... reset other fields ...
-        document.querySelector('#admin-form-container h3').innerText = 'add new book';
+        document.querySelector('#admin-form-container h3').innerText = 'add new product';
     }
     document.getElementById('admin-form-container').style.display = 'block';
 }
 
-// Update your editBook function to set the ID FIRST:
-function editBook(id) {
-    const book = inventory.find(b => b.id === id);
-    if (!book) return;
+// Update your editProduct function to set the ID FIRST:
+function editProduct(id) {
+    const product = inventory.find(b => b.id === id);
+    if (!product) return;
 
-    editingBookId = id; 
+    editingProductId = id; 
 
-    document.getElementById('f-title').value = book.title;
-    document.getElementById('f-price').value = book.price;
-    document.getElementById('f-stock').value = book.stock;
-    document.getElementById('f-weight').value = book.weight;
-    document.getElementById('f-public').checked = book.is_public;
+    document.getElementById('f-title').value = product.title;
+    document.getElementById('f-price').value = product.price;
+    document.getElementById('f-stock').value = product.stock;
+    document.getElementById('f-weight').value = product.weight;
+    document.getElementById('f-public').checked = product.is_public;
     
     // Open the form without resetting the ID
     document.getElementById('admin-form-container').style.display = 'block';
-    document.querySelector('#admin-form-container h3').innerText = 'edit book';
+    document.querySelector('#admin-form-container h3').innerText = 'edit product';
 }
 
         function logout() {

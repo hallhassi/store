@@ -1,483 +1,80 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Storefront</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://www.paypal.com/sdk/js?client-id=Abt9w5UJ8Kt5llcvSSSpjR5QfkT3OHBYV0U4uytXODmMdyM8YL0UwRIHUyLhtoMXnPwgHIu6qwjlfW3n&currency=USD"></script>
-    <style>
-        .hidden { display: none; }
-        img { width: auto; height: auto; max-width:100%;}
-        .out-of-stock { color: #888; text-decoration: line-through; }
-    </style>
+  <meta charset="UTF-8">
+  <title>Storefront</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://www.paypal.com/sdk/js?client-id=Abt9w5UJ8Kt5llcvSSSpjR5QfkT3OHBYV0U4uytXODmMdyM8YL0UwRIHUyLhtoMXnPwgHIu6qwjlfW3n&currency=USD"></script>
+  <style>
+    .hidden { display: none; }
+    img { width: auto; height: auto; max-width: 100%; }
+    .out-of-stock { color: #888; text-decoration: line-through; }
+    .admin-tools { background: #f4f4f4; padding: 5px; margin: 5px 0; font-size: .8em; }
+    .admin-tools .danger { color: red; }
+    .product-card { margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+    .product-images { margin-bottom: 10px; }
+    .buy-controls { margin-top: 5px; }
+    .form-row { display: block; margin: 6px 0; }
+    .form-row label { display: inline-block; min-width: 120px; }
+    .form-row input[type="text"],
+    .form-row input[type="number"] { width: 200px; }
+  </style>
 </head>
 <body>
-<div id="admin-panel" class="hidden">
-    <button onclick="showCreateForm()">+ add new product</button>
-<button onclick="logout()">logout</button>
-</div>
-    <div id="admin-form-container" class="hidden">
+
+  <!-- ── Admin bar ─────────────────────────────────────────────────── -->
+  <div id="admin-panel" class="hidden">
+    <button data-action="show-create-form">+ add new product</button>
+    <button data-action="logout">logout</button>
+  </div>
+
+  <!-- ── Admin form (fields injected by buildAdminForm()) ──────────── -->
+  <div id="admin-form-container" class="hidden">
     <h3>add/edit product</h3>
-    <input type="text" id="f-title" placeholder="title"><br>
-    <input type="number" id="f-price" placeholder="price"><br>
-    <input type="number" id="f-stock" placeholder="stock"><br>
-    <input type="number" id="f-weight" placeholder="weight (grams)"><br>
-    <label><input type="checkbox" id="f-public" checked> public?</label><br>
-    <input type="file" id="f-images" multiple accept="image/*"><br><br>
-    <button onclick="saveProduct()">save product</button>
-    <button onclick="hideForm()">cancel</button>
-</div>
-    <div id="store-front">
-        <h3 id="store-header">03/15/26</h3>
-        <ul id="product-list"></ul>
+    <div id="admin-form-fields"><!-- schema-driven fields go here --></div>
+    <br>
+    <button data-action="save-product">save product</button>
+    <button data-action="cancel-form">cancel</button>
+  </div>
+
+  <!-- ── Storefront ────────────────────────────────────────────────── -->
+  <div id="store-front">
+    <h3 id="store-header">03/16/26</h3>
+    <ul id="product-list"></ul>
+  </div>
+
+  <!-- ── Cart ──────────────────────────────────────────────────────── -->
+  <div id="cart-wrapper" class="hidden">
+
+    <div>
+      <h3>shipping</h3>
+      <!-- region radios injected by buildCartOptions() -->
+      <ul id="region-list"></ul>
     </div>
 
-    <div id="cart-wrapper" class="hidden">
-        <div>
-            <h3>shipping</h3>
-            <ul>
-                <li><input type="radio" id="usa" name="region" value="usa" onclick="updateTotal()"><label for="usa">USA</label></li>
-                <li><input type="radio" id="canada" name="region" value="canada" onclick="updateTotal()"><label for="canada">Canada</label></li>
-                <li><input type="radio" id="intl" name="region" value="row" onclick="updateTotal()"><label for="intl">Rest of World</label></li>
-            </ul>
-        </div>
-
-        <div>
-            <h3>payment</h3>
-            <ul>
-                <li><input type="radio" id="pay_paypal" name="method" value="paypal" onclick="updateTotal()"><label for="pay_paypal">PayPal</label></li>
-                <li><input type="radio" id="pay_zelle" name="method" value="zelle" onclick="updateTotal()"><label for="pay_zelle">Zelle</label></li>
-                <li><input type="radio" id="pay_card" name="method" value="card" onclick="updateTotal()"><label for="pay_card">Credit Card</label></li>
-            </ul>
-        </div>
-
-        <div id="total-section" class="hidden">
-            <h3>total</h3>
-            <ul id="summary-list"></ul>
-        </div>
-
-        <div id="checkout-section" class="hidden">
-            <h3>checkout</h3>
-            <ul>
-                <li><button onclick="handleCheckout()">checkout</button></li>
-                <li id="paypal-button-container" class="hidden"></li>
-            </ul>
-        </div>
+    <div>
+      <h3>payment</h3>
+      <!-- method radios injected by buildCartOptions() -->
+      <ul id="method-list"></ul>
     </div>
 
-    <script>
-        const db = supabase.createClient('https://numeejvkeadsucxwsecn.supabase.co', 'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC');
-        let inventory = [];
-        let cart = {}; 
+    <div id="total-section" class="hidden">
+      <h3>total</h3>
+      <ul id="summary-list"></ul>
+    </div>
 
-        // --- Initialization & Data Fetching ---
-async function init() {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('session') === 'success') {
-        localStorage.removeItem('cart'); 
-        cart = {};
-        const msg = document.createElement('p');
-        msg.id = 'success-msg';
-        msg.innerHTML = '<strong>order received. thank you.</strong>';
-        document.body.prepend(msg);
-        window.history.replaceState({}, document.title, "/");
-    }
+    <div id="checkout-section" class="hidden">
+      <h3>checkout</h3>
+      <ul>
+        <li><button data-action="checkout">checkout</button></li>
+        <li id="paypal-button-container" class="hidden"></li>
+      </ul>
+    </div>
 
-    // --- Conditional Admin Fetch ---
-    const adminKey = localStorage.getItem('admin_key');
-    let productsQuery = db.from('products').select('*').order('created_at', { ascending: false });
-    
-    // If no key, only show public products
-    if (!adminKey) {
-        productsQuery = productsQuery.eq('is_public', true);
-    }
-if (adminKey) {
-    document.getElementById('admin-panel').style.display = 'block';
-}
-    
-    const [productsReq, ratesReq] = await Promise.all([
-        productsQuery,
-        db.from('shipping_rates').select('*')
-    ]);
+  </div>
 
-    if (productsReq.error || ratesReq.error) return;
-    
-    inventory = productsReq.data || [];
-    window.allRates = ratesReq.data || []; 
-    render();
-}
+  <!-- ── Modules (ES module graph) ─────────────────────────────────── -->
+  <script type="module" src="./app.js"></script>
 
-        // --- Core Calculation Logic ---
-        function calculateLocally() {
-            const region = document.querySelector('input[name="region"]:checked')?.value;
-            const method = document.querySelector('input[name="method"]:checked')?.value;
-            
-            if (Object.keys(cart).length === 0) return { total: 0, breakdown: [] };
-            if (!region || !method || !window.allRates.length) return null;
-
-            let subtotal = 0;
-            let totalGrams = 0;
-            let breakdown = [];
-
-            Object.keys(cart).forEach(id => {
-                const product = inventory.find(b => b.id === id);
-                if (product) {
-                    const itemTotal = product.price * cart[id].qty;
-const qtyDisplay = cart[id].qty > 1 ? `${cart[id].qty}x ` : '';
-                    subtotal += itemTotal;
-                    totalGrams += (product.weight * cart[id].qty);
-breakdown.push(`$${itemTotal} ${qtyDisplay}${product.title}`);                }
-            });
-
-            const weightLbs = (totalGrams / 453.592) * 1.2;
-            let shipping = 0;
-            const searchRegion = region.toLowerCase();
-
-            if (searchRegion === 'usa') {
-                const base = window.allRates.find(r => r.region.toLowerCase() === 'usa' && r.is_base_rate);
-                const extra = window.allRates.find(r => r.region.toLowerCase() === 'usa' && !r.is_base_rate);
-                if (base && extra) {
-                    shipping = parseFloat(base.price) + (Math.max(0, Math.ceil(weightLbs) - 1) * parseFloat(extra.price));
-                }
-            } else {
-                const regionTiers = window.allRates.filter(r => r.region.toLowerCase() === searchRegion).sort((a, b) => a.weight_limit_lbs - b.weight_limit_lbs);
-                let rem = weightLbs;
-                while (rem > 0 && regionTiers.length > 0) {
-                    const tier = regionTiers.find(r => Math.min(rem, 4) <= r.weight_limit_lbs) || regionTiers[regionTiers.length - 1];
-                    shipping += parseFloat(tier.price);
-                    rem -= 4; 
-                }
-            }
-            breakdown.push(`$${shipping.toFixed(2)} shipping`);
-
-            let total = subtotal + shipping;
-            if (method === 'card') total = (total + 0.30) / (1 - 0.029);
-            if (method === 'paypal') total = (total + 0.49) / (1 - 0.044);
-            
-            const fee = total - (subtotal + shipping);
-            if (fee > 0) breakdown.push(`$${fee.toFixed(2)} fee`);
-
-            return { total, breakdown };
-        }
-
-        // --- UI Rendering ---
-// --- UI Rendering ---
-function render() {
-    const list = document.getElementById('product-list');
-    const isAdmin = !!localStorage.getItem('admin_key');
-    const getCdnUrl = (url, width) => {
-return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&fit=contain`;    };
-
-    list.innerHTML = inventory.map(product => {
-        const inCart = cart[product.id];
-        
-        // --- Image Rendering ---
-        // We use width=300 for the general list view
-        const imagesHtml = (product.image_urls || []).map(url => 
-            `<img src="${getCdnUrl(url, 300)}" loading="lazy" style="max-width: 100%; height: auto;">`
-        ).join('');
-
-        // --- Admin Controls ---
-        const adminTools = isAdmin ? `
-            <div style="background: #f4f4f4; padding: 5px; margin: 5px 0; font-size: 0.8em;">
-                <button onclick="editProduct('${product.id}')">edit</button>
-                <button onclick="deleteProduct('${product.id}')" style="color: red;">delete</button>
-                <span>Status: ${product.is_public ? '✅ public' : '🔒 private'}</span>
-                <span>Stock: ${product.stock}</span>
-            </div>
-        ` : '';
-
-        // --- Standard Buy Button ---
-        let buyButton = ''; 
-        if (!isAdmin) {
-            buyButton = product.stock <= 0 
-                ? `<button disabled>out of stock</button>` 
-                : inCart 
-                    ? `<button onclick="updateQty('${product.id}', 0)">remove</button>
-                       ${product.stock > 1 
-                           ? `<input type="number" value="${inCart.qty}" min="1" max="${product.stock}" style="width: 40px;" onchange="updateQty('${product.id}', this.value)">` 
-                           : '' 
-                       }` 
-                    : `<button onclick="addToCart('${product.id}')">buy</button>`;
-        }
-
-        return `
-            <li style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
-                <div class="product-images" style="margin-bottom: 10px;">
-                    ${imagesHtml}
-                </div>
-                <strong>${product.title}</strong> - $${product.price}
-                ${adminTools}
-                <div style="margin-top: 5px;">${buyButton}</div>
-            </li>
-        `;
-    }).join('');
-}
-
-        // --- Cart State Management ---
-        function addToCart(id) {
-            document.getElementById('cart-wrapper').classList.remove('hidden');
-            cart[id] = { qty: 1 };
-            render();
-            updateTotal();
-        }
-
-        function updateQty(id, qty) {
-            const q = parseInt(qty);
-            if (q > 0) cart[id].qty = q; else delete cart[id];
-            render();
-            updateTotal();
-        }
-
-        function updateTotal() {
-            const result = calculateLocally();
-            const totalSection = document.getElementById('total-section');
-            const checkoutSection = document.getElementById('checkout-section');
-            const paypalContainer = document.getElementById('paypal-button-container');
-            const stripeContainer = document.querySelector('#checkout-section button').parentElement;
-            const method = document.querySelector('input[name="method"]:checked')?.value;
-
-            if (!result || result.breakdown.length === 0) {
-                totalSection.classList.add('hidden');
-                checkoutSection.classList.add('hidden');
-                paypalContainer.classList.add('hidden');
-                return;
-            }
-
-            document.getElementById('summary-list').innerHTML = result.breakdown.map(l => `<li>${l}</li>`).join('') + `<li>$${result.total.toFixed(2)} total</li>`;
-            totalSection.classList.remove('hidden');
-            checkoutSection.classList.remove('hidden');
-
-            if (method === 'paypal') {
-                stripeContainer.classList.add('hidden');
-                paypalContainer.classList.remove('hidden');
-                renderPayPal();
-            } else {
-                stripeContainer.classList.remove('hidden');
-                paypalContainer.classList.add('hidden');
-            }
-        }
-
-        // --- Checkout & Payment Integration ---
-        async function handleCheckout() {
-            const region = document.querySelector('input[name="region"]:checked')?.value;
-            const method = document.querySelector('input[name="method"]:checked')?.value;
-            const checkoutBtn = document.querySelector('#checkout-section button');
-
-            if (method === 'zelle') {
-                const result = calculateLocally();
-                alert(`Please Zelle $${result.total.toFixed(2)} to your@email.com`);
-                return;
-            }
-
-            checkoutBtn.disabled = true;
-            checkoutBtn.innerText = 'redirecting...';
-
-            const res = await fetch('/.netlify/functions/create-checkout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cart, region, method })
-            });
-
-            const data = await res.json();
-            if (data.url) {
-                window.location.href = data.url;
-            } else {
-                alert("Checkout failed: " + (data.error || "Unknown error"));
-                checkoutBtn.disabled = false;
-                checkoutBtn.innerText = 'checkout';
-            }
-        }
-
-        function renderPayPal() {
-            const region = document.querySelector('input[name="region"]:checked').value;
-            const container = document.getElementById('paypal-button-container');
-            container.innerHTML = '';
-
-            paypal.Buttons({
-                createOrder: async (data, actions) => {
-                    const response = await fetch('/.netlify/functions/create-checkout', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ cart, region, method: 'paypal' })
-                    });
-                    const result = await response.json();
-                    return actions.order.create({
-                        purchase_units: [{ amount: { value: result.total.toString() } }]
-                    });
-                },
-                onApprove: async (data, actions) => {
-                    const order = await actions.order.capture();
-                    await fetch('/.netlify/functions/handle-purchase', {
-                        method: 'POST',
-                        body: JSON.stringify({ source: 'paypal', details: order, cart: cart })
-                    });
-                    window.location.href = '/?session=success';
-                }
-            }).render('#paypal-button-container');
-        }
-
-        // admin
-        async function uploadImages(files) {
-    const urls = [];
-    for (const file of files) {
-        // Create a unique file path: "title-timestamp.jpg"
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random()}-${Date.now()}.${fileExt}`;
-        const filePath = `covers/${fileName}`;
-
-        // Upload to the 'product-media' bucket
-        const { data, error } = await db.storage
-            .from('product-media')
-            .upload(filePath, file);
-
-        if (error) throw error;
-
-        // Get the Public URL
-        const { data: { publicUrl } } = db.storage
-            .from('product-media')
-            .getPublicUrl(filePath);
-        
-        urls.push(publicUrl);
-    }
-    return urls;
-}
-
-        async function saveProduct() {
-    const btn = event.target;
-    btn.disabled = true;
-    btn.innerText = 'saving...';
-
-    const title = document.getElementById('f-title').value;
-    const price = parseFloat(document.getElementById('f-price').value);
-    const stock = parseInt(document.getElementById('f-stock').value);
-    const weight = parseFloat(document.getElementById('f-weight').value);
-    const is_public = document.getElementById('f-public').checked;
-    const imageFiles = document.getElementById('f-images').files;
-
-try {
-        const imageFiles = document.getElementById('f-images').files;
-        let imageUrls = [];
-
-        // 1. If we are EDITING, get the existing URLs from the inventory first
-        if (editingProductId) {
-            const currentProduct = inventory.find(b => b.id === editingProductId);
-            imageUrls = currentProduct.image_urls || [];
-        }
-
-        // 2. If NEW files are selected, upload them and ADD them to the list
-        if (imageFiles.length > 0) {
-            const newUrls = await uploadImages(imageFiles);
-            imageUrls = [...imageUrls, ...newUrls]; // Keep old ones + add new ones
-        }
-
-        // 2. Prepare data for Supabase
-// Inside your saveProduct function, update the productData object:
-const productData = { 
-    title, 
-    price, 
-    stock, 
-    weight, 
-    is_public, 
-    image_urls: imageUrls 
-};
-
-// If we are editing, we MUST include the existing ID
-if (editingProductId) {
-    productData.id = editingProductId;
-}
-
-        // 3. Send to our secure Netlify bridge
-        const res = await fetch('/.netlify/functions/manage-products', {
-            method: 'POST',
-            body: JSON.stringify({
-                key: localStorage.getItem('admin_key'),
-                data: productData
-            })
-        });
-
-        if (res.ok) {
-            alert('saved!');
-            location.reload(); // Refresh to show new data
-        } else {
-            alert('failed to save');
-        }
-    } catch (err) {
-        console.error(err);
-        alert('error: ' + err.message);
-    } finally {
-        btn.disabled = false;
-        btn.innerText = 'save product';
-    }
-}
-
-        
-function hideForm() {
-    document.getElementById('admin-form-container').classList.add('hidden');
-    // Optional: Clear inputs here so they are fresh for next time
-}
-
-    async function deleteProduct(id) {
-    if (!confirm('Are you sure you want to delete this product?')) return;
-
-    try {
-        const res = await fetch('/.netlify/functions/manage-products', {
-            method: 'DELETE', // Our function logic handles this branch
-            body: JSON.stringify({
-                key: localStorage.getItem('admin_key'),
-                data: { id }
-            })
-        });
-
-        if (res.ok) {
-            alert('Deleted');
-            location.reload();
-        } else {
-            alert('Delete failed');
-        }
-    } catch (err) {
-        alert('Error: ' + err.message);
-    }
-}
-
-        let editingProductId = null; // Track if we are editing or creating new
-
-        // Change your showCreateForm to this:
-function showCreateForm() {
-    // Only reset if we aren't already editing something
-    if (!editingProductId) {
-        document.getElementById('f-title').value = '';
-        document.getElementById('f-price').value = '';
-        // ... reset other fields ...
-        document.querySelector('#admin-form-container h3').innerText = 'add new product';
-    }
-    document.getElementById('admin-form-container').style.display = 'block';
-}
-
-// Update your editProduct function to set the ID FIRST:
-function editProduct(id) {
-    const product = inventory.find(b => b.id === id);
-    if (!product) return;
-
-    editingProductId = id; 
-
-    document.getElementById('f-title').value = product.title;
-    document.getElementById('f-price').value = product.price;
-    document.getElementById('f-stock').value = product.stock;
-    document.getElementById('f-weight').value = product.weight;
-    document.getElementById('f-public').checked = product.is_public;
-    
-    // Open the form without resetting the ID
-    document.getElementById('admin-form-container').style.display = 'block';
-    document.querySelector('#admin-form-container h3').innerText = 'edit product';
-}
-
-        function logout() {
-    localStorage.removeItem('admin_key');
-    window.location.href = '/';
-}
-        
-        init();
-    </script>
 </body>
 </html>

@@ -11,12 +11,50 @@
     </style>
 </head>
 <body>
+    
+<!-- ── Store Header ── -->
+<div id="store-front">
+    <h3 id="store-header"></h3>
+    <ul id="product-list"></ul>
+</div>
+
 <div id="admin-bar" class="hidden">
     <span>admin</span>
     <button id="btn-upload" onclick="triggerUpload()">upload</button>
     <button id="btn-save" onclick="saveAll()">save</button>
     <button onclick="logout()" style="margin-left: auto;">logout</button>
     <input type="file" id="upload-input" multiple accept="image/*" style="display:none" onchange="handleUpload(this.files)">
+</div>
+
+<!-- ── Cart / Checkout ── -->
+<div id="cart-wrapper" class="hidden">
+    <div>
+        <h3>shipping</h3>
+        <ul>
+            <li><input type="radio" id="usa" name="region" value="usa" onclick="updateTotal()"><label for="usa">USA</label></li>
+            <li><input type="radio" id="canada" name="region" value="canada" onclick="updateTotal()"><label for="canada">Canada</label></li>
+            <li><input type="radio" id="intl" name="region" value="row" onclick="updateTotal()"><label for="intl">Rest of World</label></li>
+        </ul>
+    </div>
+    <div>
+        <h3>payment</h3>
+        <ul>
+            <li><input type="radio" id="pay_paypal" name="method" value="paypal" onclick="updateTotal()"><label for="pay_paypal">PayPal</label></li>
+            <li><input type="radio" id="pay_zelle" name="method" value="zelle" onclick="updateTotal()"><label for="pay_zelle">Zelle</label></li>
+            <li><input type="radio" id="pay_card" name="method" value="card" onclick="updateTotal()"><label for="pay_card">Credit Card</label></li>
+        </ul>
+    </div>
+    <div id="total-section" class="hidden">
+        <h3>total</h3>
+        <ul id="summary-list"></ul>
+    </div>
+    <div id="checkout-section" class="hidden">
+        <h3>checkout</h3>
+        <ul>
+            <li><button onclick="handleCheckout()">checkout</button></li>
+            <li id="paypal-button-container" class="hidden"></li>
+        </ul>
+    </div>
 </div>
 
 <script>

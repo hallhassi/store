@@ -126,6 +126,8 @@
 
         list.innerHTML = inventory.map(product => {
             const inCart = cart[product.id];
+            const isNew = product.isNew;
+            const saveButton = isNew ? `<button onclick="saveNewProduct('${product.id}')" style="background: green;">Save to Store</button>` : '';
             
             // Unified UI: Both admin and user see the same product card
             return `
@@ -137,7 +139,7 @@
                         <span>Stock:</span>
                         <input type="number" value="${product.stock}" onchange="updateProductField('${product.id}', 'stock', this.value)" ${!isAdmin ? 'disabled' : ''}>
                     </div>
-                    ${isAdmin ? `<button onclick="deleteProduct('${product.id}')">Delete</button>` : ''}
+                    ${isAdmin ? `${saveButton}<button onclick="deleteProduct('${product.id}')">Delete</button>` : ''}
                     ${!isAdmin ? `<button onclick="addToCart('${product.id}')">${inCart ? 'In Cart' : 'Buy'}</button>` : ''}
                 </li>
             `;
@@ -145,34 +147,52 @@
     }
 
     // --- Admin Functions ---
+
     async function handleBulkUpload() {
         const files = document.getElementById('bulk-images').files;
         if (!files.length) return;
 
         for (const file of files) {
             const fileName = `${Date.now()}-${file.name}`;
-            const { data, error } = await db.storage.from('product-media').upload(`products/${fileName}`, file);
+            const { data, error } = await db.storage
+                .from('product-media')
+                .upload(`products/${fileName}`, file);
             
+            if (error) {
+                console.error("Upload error:", error);
+                continue;
+            }
+
             if (data) {
-                const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(`products/${fileName}`);
+                const { data: { publicUrl } } = db.storage
+                    .from('product-media')
+                    .getPublicUrl(`products/${fileName}`);
                 
-                // Create a new product entry for each image
-                await fetch('/.netlify/functions/manage-products', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        key: localStorage.getItem('admin_key'),
-                        data: { title: 'New Product', price: 0, stock: 1, weight: 100, image_url: publicUrl }
-                    })
-                });
+                // Create a temporary local object with a unique temp ID
+                const newProduct = {
+                    id: 'temp-' + Date.now() + Math.random(),
+                    title: 'New Product',
+                    price: 0,
+                    stock: 1,
+                    weight: 100,
+                    image_url: publicUrl,
+                    isNew: true // Flag to identify unsaved items
+                };
+
+                inventory.unshift(newProduct); // Add to start of list
             }
         }
-        location.reload();
+        render(); // Use your existing render function to show them
     }
 
     async function updateProductField(id, field, value) {
         const product = inventory.find(p => p.id === id);
         product[field] = value;
 
+        // If it's a temp product, just update local state and stop
+        if (product.isNew) return; 
+
+        // Otherwise, proceed with existing DB update
         await fetch('/.netlify/functions/manage-products', {
             method: 'POST',
             body: JSON.stringify({
@@ -180,6 +200,28 @@
                 data: product
             })
         });
+    }
+
+    async function saveNewProduct(tempId) {
+        const product = inventory.find(p => p.id === tempId);
+        
+        // Prepare data (remove the temp ID and the isNew flag)
+        const { id, isNew, ...saveData } = product;
+
+        const response = await fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({
+                key: localStorage.getItem('admin_key'),
+                data: saveData // This now includes the publicUrl
+            })
+        });
+
+        if (response.ok) {
+            alert('Product saved!');
+            location.reload(); // Refresh to get the real DB ID
+        } else {
+            alert('Error saving product');
+        }
     }
 
     async function deleteProduct(id) {

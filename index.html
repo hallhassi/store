@@ -35,6 +35,42 @@ let newProducts = [];
 let pendingEdits = {};
 
 // ════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════
+async function init() {
+    const urlParams = new URLSearchParams(window.location.search);
+
+    if (urlParams.get('session') === 'success') {
+        localStorage.removeItem('cart');
+        cart = {};
+        const msg = document.createElement('p');
+        msg.innerHTML = '<strong>order received. thank you.</strong>';
+        document.body.prepend(msg);
+        window.history.replaceState({}, document.title, '/');
+    }
+
+    document.getElementById('store-header').textContent = new Date().toLocaleDateString('en-CA').slice(2).replace(/-/g, '-');
+
+    const adminKey = localStorage.getItem('admin_key');
+    if (adminKey) {
+        document.getElementById('admin-bar').classList.remove('hidden');
+    }
+
+    let productsQuery = db.from('products').select('id, title, price, weight, img_url, created_at').order('created_at', { ascending: false });
+
+    const [productsReq, ratesReq] = await Promise.all([
+        productsQuery,
+        db.from('shipping_rates').select('*'),
+    ]);
+
+    if (productsReq.error) return;
+
+    inventory       = productsReq.data || [];
+    window.allRates = ratesReq.data    || [];
+
+    render();
+}
+// ════════════════════════════════════════════════
 // RENDER LOGIC
 // ════════════════════════════════════════════════
 function getCdnUrl(url, width) {

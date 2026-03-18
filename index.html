@@ -272,21 +272,6 @@ async function saveAll() {
         btn.textContent = 'save';
     }
 }
-// ════════════════════════════════════════════════
-// FIELD EDITING
-// Keep pending edits in-memory until save.
-// ════════════════════════════════════════════════
-let pendingEdits = {};
-
-function trackEdit(product, field, value) {
-    if (product.id) {
-        if (!pendingEdits[product.id]) pendingEdits[product.id] = {};
-        pendingEdits[product.id][field] = value;
-    } else {
-        newProducts[product._newIndex][field] = value;
-    }
-}
-
 
 // ════════════════════════════════════════════════
 // ADMIN: UPLOAD

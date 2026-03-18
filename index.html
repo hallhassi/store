@@ -7,15 +7,23 @@
     <script src="https://www.paypal.com/sdk/js?client-id=Abt9w5UJ8Kt5llcvSSSpjR5QfkT3OHBYV0U4uytXODmMdyM8YL0UwRIHUyLhtoMXnPwgHIu6qwjlfW3n&currency=USD"></script>
     <style>
         .hidden { display: none; }
+        img { max-width: 100%;}
+        body { background: black; color: white;}
     </style>
 </head>
 <body>
-
 <div id="admin-panel" class="hidden">
     <section>
-        <p>Bulk Upload (Each photo = 1 Product)</p>
-        <input type="file" id="bulk-images" multiple accept="image/*">
-        <button onclick="handleBulkUpload()">Upload & Create Products</button>
+        <button onclick="document.getElementById('multi-edit-input').click()">Edit Multiple Images</button>
+        <input type="file" id="multi-edit-input" class="hidden" multiple accept="image/*" onchange="startMultiEdit(this.files)">
+        
+        <div id="edit-queue-area" class="hidden">
+            <p><strong>Step 1:</strong> Select a product below to replace it with this photo:</p>
+            <div id="current-queue-preview"></div>
+            <button onclick="cancelMultiEdit()">Cancel Batch</button>
+        </div>
+
+        <button onclick="document.getElementById('bulk-images').click()">+ Add New Products</button>
         <button onclick="logout()">logout</button>
     </section>
 </div>
@@ -278,6 +286,75 @@
         });
         // Silent update - no alert needed for text fields
     }
+
+
+
+    let editQueue = [];
+
+// --- Initialize the Multi-Edit Process ---
+function startMultiEdit(files) {
+    if (!files.length) return;
+    editQueue = Array.from(files);
+    document.getElementById('edit-queue-area').classList.remove('hidden');
+    document.body.classList.add('multi-edit-mode'); // Visual hint
+    updateQueuePreview();
+}
+
+// --- Show the top image in the queue ---
+function updateQueuePreview() {
+    const container = document.getElementById('current-queue-preview');
+    if (editQueue.length === 0) {
+        cancelMultiEdit();
+        return;
+    }
+    const file = editQueue[0];
+    const url = URL.createObjectURL(file);
+    container.innerHTML = `<img src="${url}" style="width:150px; border:3px solid blue;"> <p>${editQueue.length} remaining</p>`;
+}
+
+// --- The "Click to Swap" Logic ---
+// We modify the existing render() logic to handle clicks on the <li>
+async function handleProductClick(id) {
+    if (editQueue.length === 0) return; // Do nothing if not in edit mode
+
+    const file = editQueue.shift(); // Take the first file from queue
+    const targetLi = document.getElementById(`p-${id}`);
+    targetLi.style.opacity = '0.5'; // Visual feedback
+
+    try {
+        // Upload process
+        const fileName = `products/${Date.now()}-${file.name}`;
+        const { data, error } = await db.storage.from('product-media').upload(fileName, file);
+        if (error) throw error;
+
+        const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(fileName);
+
+        // Update Database
+        await fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({
+                key: localStorage.getItem('admin_key'),
+                data: { id, image_url: publicUrl }
+            })
+        });
+
+        // Update UI
+        document.querySelector(`#p-${id} img`).src = publicUrl;
+        targetLi.style.opacity = '1';
+        updateQueuePreview(); // Move to next image in queue
+        
+    } catch (err) {
+        alert("Upload failed: " + err.message);
+        editQueue.unshift(file); // Put it back if it failed
+        targetLi.style.opacity = '1';
+    }
+}
+
+function cancelMultiEdit() {
+    editQueue = [];
+    document.getElementById('edit-queue-area').classList.add('hidden');
+    document.body.classList.remove('multi-edit-mode');
+}
 
     init();
 </script>

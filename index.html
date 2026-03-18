@@ -127,17 +127,24 @@
             
             // Unified UI: Both admin and user see the same product card
             return `
-                <li id="p-${product.id}">
-                    <img src="${product.image_url}" loading="lazy">
-                    <div>
-                        <input type="text" value="${product.title}" onchange="updateProductField('${product.id}', 'title', this.value)" ${!isAdmin ? 'disabled' : ''}>
-                        <input type="number" value="${product.price}" onchange="updateProductField('${product.id}', 'price', this.value)" ${!isAdmin ? 'disabled' : ''}>
-                        <span>Stock:</span>
-                        <input type="number" value="${product.stock}" onchange="updateProductField('${product.id}', 'stock', this.value)" ${!isAdmin ? 'disabled' : ''}>
-                    </div>
-                    ${isAdmin ? `<button onclick="deleteProduct('${product.id}')">Delete</button>` : ''}
-                    ${!isAdmin ? `<button onclick="addToCart('${product.id}')">${inCart ? 'In Cart' : 'Buy'}</button>` : ''}
-                </li>
+<li id="p-${product.id}">
+    <img src="${product.image_url}" id="img-${product.id}">
+    
+    <div>
+        <input type="text" value="${product.title}" onchange="updateProductField('${product.id}', 'title', this.value)" ${!isAdmin ? 'disabled' : ''}>
+        <input type="number" value="${product.price}" onchange="updateProductField('${product.id}', 'price', this.value)" ${!isAdmin ? 'disabled' : ''}>
+        
+        ${isAdmin ? `
+            <div class="admin-actions">
+                <button onclick="document.getElementById('edit-file-${product.id}').click()">Change Photo</button>
+                <input type="file" id="edit-file-${product.id}" class="hidden" accept="image/*" onchange="replaceProductImage('${product.id}', this.files[0])">
+                <button onclick="deleteProduct('${product.id}')" style="color:red">Delete</button>
+            </div>
+        ` : ''}
+    </div>
+
+    ${!isAdmin ? `<button onclick="addToCart('${product.id}')">${inCart ? 'In Cart' : 'Buy'}</button>` : ''}
+</li>
             `;
         }).join('');
     }
@@ -208,6 +215,68 @@
     function logout() {
         localStorage.removeItem('admin_key');
         location.reload();
+    }
+
+
+    // --- Image Replacement Logic ---
+    async function replaceProductImage(id, file) {
+        if (!file) return;
+
+        const btn = event.target.previousElementSibling;
+        const originalText = btn.innerText;
+        btn.innerText = 'Uploading...';
+        btn.disabled = true;
+
+        try {
+            // 1. Upload new image to Supabase Storage
+            const fileName = `products/${Date.now()}-${file.name}`;
+            const { data, error } = await db.storage
+                .from('product-media')
+                .upload(fileName, file);
+
+            if (error) throw error;
+
+            // 2. Get the new Public URL
+            const { data: { publicUrl } } = db.storage
+                .from('product-media')
+                .getPublicUrl(fileName);
+
+            // 3. Update the database via the Netlify function
+            const res = await fetch('/.netlify/functions/manage-products', {
+                method: 'POST',
+                body: JSON.stringify({
+                    key: localStorage.getItem('admin_key'),
+                    data: { id, image_url: publicUrl }
+                })
+            });
+
+            if (res.ok) {
+                // Update the UI locally without a full reload
+                document.getElementById(`img-${id}`).src = publicUrl;
+                alert('Photo updated!');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Upload failed: ' + err.message);
+        } finally {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    // --- Helper for other field updates (Title, Price, etc.) ---
+    async function updateProductField(id, field, value) {
+        const payload = { id };
+        payload[field] = value;
+
+        await fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({
+                key: localStorage.getItem('admin_key'),
+                data: payload
+            })
+        });
+        // Silent update - no alert needed for text fields
     }
 
     init();

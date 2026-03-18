@@ -412,7 +412,34 @@ async function handleCheckout() {
     const region      = document.querySelector('input[name="region"]:checked')?.value;
     const method      = document.querySelector('input[name="method"]:checked')?.value;
     const checkoutBtn = document.querySelector('#checkout-section button');
+    const name = document.getElementById('collector-name').value;
+    if (!name) {
+        alert("Please enter your name.");
+        return;
+    }
 
+    const region = document.querySelector('input[name="region"]:checked')?.value;
+    const method = document.querySelector('input[name="method"]:checked')?.value;
+    const calculation = calculateLocally();
+
+    const response = await fetch('/.netlify/functions/create-checkout', {
+        method: 'POST',
+        body: JSON.stringify({
+            cart: cart,
+            region: region,
+            paymentMethod: method,
+            collectorName: name, // This passes the name to the backend
+            total: calculation.total
+        })
+    });
+
+    const session = await response.json();
+    if (session.url) window.location.href = session.url;
+    else {
+        alert('Checkout failed: ' + (data.error || 'Unknown error'));
+        checkoutBtn.disabled  = false;
+        checkoutBtn.innerText = 'checkout';
+    }
     if (method === 'zelle') {
         const result = calculateLocally();
         alert(`Please Zelle $${result.total.toFixed(2)} to your@email.com`);
@@ -422,20 +449,7 @@ async function handleCheckout() {
     checkoutBtn.disabled   = true;
     checkoutBtn.innerText  = 'redirecting...';
 
-    const res  = await fetch('/.netlify/functions/create-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cart, region, method }),
-    });
-    const data = await res.json();
-
-    if (data.url) {
-        window.location.href = data.url;
-    } else {
-        alert('Checkout failed: ' + (data.error || 'Unknown error'));
-        checkoutBtn.disabled  = false;
-        checkoutBtn.innerText = 'checkout';
-    }
+    
 }
 
 function renderPayPal() {

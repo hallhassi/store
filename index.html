@@ -49,13 +49,20 @@
         <h3>total</h3>
         <ul id="summary-list"></ul>
     </div>
-    <div id="checkout-section" class="hidden">
+
+    <section id="checkout-section" class="hidden">
         <h3>checkout</h3>
         <ul>
+            <li>
+                <label for="collector-name">
+                    your name will appear below the title as collected by. what is your name?
+                </label>
+                <input type="text" id="collector-name" placeholder="enter name">
+            </li>
             <li><button onclick="handleCheckout()">checkout</button></li>
             <li id="paypal-button-container" class="hidden"></li>
         </ul>
-    </div>
+    </section>
 </div>
 
 <script>

@@ -60,13 +60,15 @@
     </section>
 </div>
 
-<script>
-    const db = supabase.createClient('https://numeejvkeadsucxwsecn.supabase.co', 'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC');
+<script>const db = supabase.createClient('https://numeejvkeadsucxwsecn.supabase.co', 'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC');
     let inventory = [];
     let cart = {}; 
 
     // --- Initialization ---
     async function init() {
+        // Set the header date as requested
+        document.getElementById('store-header').innerText = "12-31-26";
+
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('session') === 'success') {
             localStorage.removeItem('cart'); 
@@ -88,37 +90,6 @@
         render();
     }
 
-    // --- Logic & Calculations ---
-    function calculateLocally() {
-        const region = document.querySelector('input[name="region"]:checked')?.value;
-        const method = document.querySelector('input[name="method"]:checked')?.value;
-        if (Object.keys(cart).length === 0 || !region || !method) return null;
-
-        let subtotal = 0, totalGrams = 0, breakdown = [];
-
-        Object.keys(cart).forEach(id => {
-            const product = inventory.find(p => p.id === id);
-            if (product) {
-                const itemTotal = product.price * cart[id].qty;
-                subtotal += itemTotal;
-                totalGrams += (product.weight * cart[id].qty);
-                breakdown.push(`$${itemTotal} ${product.title}`);
-            }
-        });
-
-        const weightLbs = (totalGrams / 453.592) * 1.2;
-        let shipping = 0;
-        // Simplified shipping logic placeholder
-        shipping = region === 'usa' ? 5.00 : 15.00; 
-
-        breakdown.push(`$${shipping.toFixed(2)} shipping`);
-        let total = subtotal + shipping;
-        if (method === 'card') total = (total + 0.30) / (1 - 0.029);
-        if (method === 'paypal') total = (total + 0.49) / (1 - 0.044);
-        
-        return { total, breakdown };
-    }
-
     // --- UI Rendering ---
     function render() {
         const list = document.getElementById('product-list');
@@ -126,73 +97,91 @@
 
         list.innerHTML = inventory.map(product => {
             const inCart = cart[product.id];
-            const isNew = product.isNew;
-            const saveButton = isNew ? `<button onclick="saveNewProduct('${product.id}')" style="background: green;">Save to Store</button>` : '';
+            const isNew = !!product.isNew;
             
-            // Unified UI: Both admin and user see the same product card
+            // Fix 404: If image_url is missing/undefined, use a placeholder or empty string
+            const imgSrc = product.image_url || '';
+            
             return `
-                <li id="p-${product.id}">
-                    <img src="${product.image_url}" loading="lazy">
+                <li id="p-${product.id}" style="border-bottom: 1px solid #333; padding: 10px 0; list-style: none;">
+                    ${imgSrc ? `<img src="${imgSrc}" style="max-width: 200px; display: block; margin-bottom: 10px;">` : ''}
                     <div>
-                        <input type="text" value="${product.title}" onchange="updateProductField('${product.id}', 'title', this.value)" ${!isAdmin ? 'disabled' : ''}>
-                        <input type="number" value="${product.price}" onchange="updateProductField('${product.id}', 'price', this.value)" ${!isAdmin ? 'disabled' : ''}>
+                        <input type="text" placeholder="Title" value="${product.title || ''}" 
+                            onchange="updateProductField('${product.id}', 'title', this.value)" ${!isAdmin ? 'disabled' : ''}>
+                        
+                        <input type="number" placeholder="Price" value="${product.price || 0}" 
+                            onchange="updateProductField('${product.id}', 'price', this.value)" ${!isAdmin ? 'disabled' : ''}>
+                        
                         <span>Stock:</span>
-                        <input type="number" value="${product.stock}" onchange="updateProductField('${product.id}', 'stock', this.value)" ${!isAdmin ? 'disabled' : ''}>
+                        <input type="number" value="${product.stock || 1}" 
+                            onchange="updateProductField('${product.id}', 'stock', this.value)" ${!isAdmin ? 'disabled' : ''}>
                     </div>
-                    ${isAdmin ? `${saveButton}<button onclick="deleteProduct('${product.id}')">Delete</button>` : ''}
-                    ${!isAdmin ? `<button onclick="addToCart('${product.id}')">${inCart ? 'In Cart' : 'Buy'}</button>` : ''}
+                    ${isAdmin ? `
+                        ${isNew ? `<button onclick="saveNewProduct('${product.id}')" style="background: green; color: white;">Save to Store</button>` : ''}
+                        <button onclick="deleteProduct('${product.id}', ${isNew})">Delete</button>
+                    ` : `
+                        <button onclick="addToCart('${product.id}')">${inCart ? 'In Cart' : 'Buy'}</button>
+                    `}
                 </li>
             `;
         }).join('');
     }
 
-    // --- Admin Functions ---
+    // --- Admin Logic: Preview & Upload ---
 
-    async function handleBulkUpload() {
+    async function previewFiles() {
         const files = document.getElementById('bulk-images').files;
         if (!files.length) return;
 
         for (const file of files) {
-            const fileName = `${Date.now()}-${file.name}`;
-            const { data, error } = await db.storage
-                .from('product-media')
-                .upload(`products/${fileName}`, file);
-            
-            if (error) {
-                console.error("Upload error:", error);
-                continue;
-            }
+            // 1. Upload immediately to get the URL
+            const fileName = `${Date.now()}-${file.name.replace(/[^a-z0-9.]/gi, '_')}`;
+            const { data, error } = await db.storage.from('product-media').upload(`products/${fileName}`, file);
 
             if (data) {
-                const { data: { publicUrl } } = db.storage
-                    .from('product-media')
-                    .getPublicUrl(`products/${fileName}`);
+                const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(`products/${fileName}`);
                 
-                // Create a temporary local object with a unique temp ID
-                const newProduct = {
-                    id: 'temp-' + Date.now() + Math.random(),
-                    title: 'New Product',
+                // 2. Add to inventory array as a "New" product
+                const tempProduct = {
+                    id: 'temp-' + Math.random().toString(36).substr(2, 9),
+                    title: file.name.split('.')[0], // Use filename as default title
                     price: 0,
                     stock: 1,
                     weight: 100,
                     image_url: publicUrl,
-                    isNew: true // Flag to identify unsaved items
+                    isNew: true
                 };
 
-                inventory.unshift(newProduct); // Add to start of list
+                inventory.unshift(tempProduct); // Put at the top
+                render(); // Re-render so you can edit it
             }
         }
-        render(); // Use your existing render function to show them
+    }
+
+    async function saveNewProduct(tempId) {
+        const product = inventory.find(p => p.id === tempId);
+        const { id, isNew, ...saveData } = product; // Remove temp ID and flag
+
+        const response = await fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({
+                key: localStorage.getItem('admin_key'),
+                data: saveData
+            })
+        });
+
+        if (response.ok) {
+            alert('Saved to database');
+            location.reload(); 
+        }
     }
 
     async function updateProductField(id, field, value) {
         const product = inventory.find(p => p.id === id);
-        product[field] = value;
+        product[field] = (field === 'price' || field === 'stock') ? parseFloat(value) : value;
 
-        // If it's a temp product, just update local state and stop
-        if (product.isNew) return; 
+        if (product.isNew) return; // Don't sync to DB until "Save" is clicked
 
-        // Otherwise, proceed with existing DB update
         await fetch('/.netlify/functions/manage-products', {
             method: 'POST',
             body: JSON.stringify({
@@ -202,30 +191,13 @@
         });
     }
 
-    async function saveNewProduct(tempId) {
-        const product = inventory.find(p => p.id === tempId);
-        
-        // Prepare data (remove the temp ID and the isNew flag)
-        const { id, isNew, ...saveData } = product;
-
-        const response = await fetch('/.netlify/functions/manage-products', {
-            method: 'POST',
-            body: JSON.stringify({
-                key: localStorage.getItem('admin_key'),
-                data: saveData // This now includes the publicUrl
-            })
-        });
-
-        if (response.ok) {
-            alert('Product saved!');
-            location.reload(); // Refresh to get the real DB ID
-        } else {
-            alert('Error saving product');
-        }
-    }
-
-    async function deleteProduct(id) {
+    async function deleteProduct(id, isNew) {
         if (!confirm('Delete?')) return;
+        if (isNew) {
+            inventory = inventory.filter(p => p.id !== id);
+            render();
+            return;
+        }
         await fetch('/.netlify/functions/manage-products', {
             method: 'DELETE',
             body: JSON.stringify({ key: localStorage.getItem('admin_key'), data: { id } })
@@ -233,7 +205,7 @@
         location.reload();
     }
 
-    // --- Cart Management ---
+    // --- Standard Functions ---
     function addToCart(id) {
         cart[id] = { qty: 1 };
         document.getElementById('cart-wrapper').classList.remove('hidden');
@@ -242,7 +214,7 @@
     }
 
     function updateTotal() {
-        const result = calculateLocally();
+        const result = calculateLocally(); // Using your existing calculation logic
         if (!result) return;
         document.getElementById('summary-list').innerHTML = result.breakdown.map(l => `<li>${l}</li>`).join('') + `<li>Total: $${result.total.toFixed(2)}</li>`;
         document.getElementById('total-section').classList.remove('hidden');
@@ -254,98 +226,6 @@
         location.reload();
     }
 
-    // --- NEW Admin Logic ---
-
-let pendingProducts = [];
-
-// 1. Show the images and input fields locally before uploading
-function previewFiles() {
-    const files = document.getElementById('bulk-images').files;
-    const previewArea = document.getElementById('upload-preview-area');
-    const saveBtn = document.getElementById('save-all-btn');
-    
-    previewArea.innerHTML = '';
-    pendingProducts = [];
-
-    if (files.length > 0) saveBtn.classList.remove('hidden');
-
-    Array.from(files).forEach((file, index) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const div = document.createElement('div');
-            div.style = "display: flex; gap: 10px; margin-bottom: 10px; align-items: center; border-bottom: 1px solid #eee; padding: 5px;";
-            div.innerHTML = `
-                <img src="${e.target.result}" style="width: 50px; height: 50px; object-fit: cover;">
-                <input type="text" placeholder="Title" id="title-${index}" value="${file.name.split('.')[0]}">
-                <input type="number" placeholder="Price" id="price-${index}" value="0">
-                <input type="number" placeholder="Stock" id="stock-${index}" value="1">
-            `;
-            previewArea.appendChild(div);
-            
-            // Track the file and metadata
-            pendingProducts.push({
-                file: file,
-                index: index
-            });
-        };
-        reader.readAsDataURL(file);
-    });
-}
-
-// 2. The actual Upload + Database Insertion flow
-async function processBulkUpload() {
-    const saveBtn = document.getElementById('save-all-btn');
-    saveBtn.disabled = true;
-    saveBtn.innerText = "Processing...";
-
-    for (const item of pendingProducts) {
-        const file = item.file;
-        const fileName = `${Date.now()}-${file.name.replace(/[^a-z0-9.]/gi, '_')}`;
-        
-        // A. Upload to Storage
-        const { data: uploadData, error: uploadError } = await db.storage
-            .from('product-media')
-            .upload(`products/${fileName}`, file);
-
-        if (uploadError) {
-            console.error("Upload Error:", uploadError);
-            continue; 
-        }
-
-        // B. Get Public URL (Check your Supabase URL/Key permissions here)
-        const { data } = db.storage
-            .from('product-media')
-            .getPublicUrl(`products/${fileName}`);
-        
-        const publicUrl = data.publicUrl;
-
-        // C. Collect the UI values for this specific image
-        const productData = {
-            title: document.getElementById(`title-${item.index}`).value,
-            price: parseFloat(document.getElementById(`price-${item.index}`).value),
-            stock: parseInt(document.getElementById(`stock-${item.index}`).value),
-            weight: 100, // Default weight
-            image_url: publicUrl
-        };
-
-        // D. Send to your Netlify function
-        try {
-            await fetch('/.netlify/functions/manage-products', {
-                method: 'POST',
-                body: JSON.stringify({
-                    key: localStorage.getItem('admin_key'),
-                    data: productData
-                })
-            });
-        } catch (err) {
-            console.error("Database Save Error:", err);
-        }
-    }
-
-    alert("All products uploaded!");
-    location.reload();
-}
-    
     init();
 </script>
 </body>

@@ -62,19 +62,87 @@
 <script>
 
 // ════════════════════════════════════════════════
-// SCHEMA
-// Defines field name, display label, type, and
-// whether it is editable by admin.
+// RENDER
+// One function for every product, public and admin.
 // ════════════════════════════════════════════════
-const SCHEMA = [
-    { key: 'id',         label: 'ID',     type: 'text',   editable: false },
-    { key: 'title',      label: 'Title',  type: 'text',   editable: true  },
-    { key: 'price',      label: 'Price',  type: 'number', editable: true  },
-    { key: 'weight',     label: 'Weight', type: 'number', editable: true  },
-    { key: 'img_url', label: 'Image', type: 'text', editable: true },
-];
+function getCdnUrl(url, width) {
+    return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&fit=contain`;
+}
+
+function renderProduct(product) {
+    const isAdmin   = !!localStorage.getItem('admin_key');
+    const isDeleted = deletedIds.has(product.id);
+    const inCart    = cart[product.id];
+    const liId      = product.id ? `product-${product.id}` : `product-new-${product._newIndex}`;
+
+    const li = document.createElement('li');
+    li.id = liId;
+    if (isDeleted) li.style.opacity = '0.4';
+
+    if (isAdmin && deleteMode && product.id) {
+        li.style.cursor = 'pointer';
+        li.onclick = () => toggleDeletion(product.id);
+    }
+
+    if (product.img_url) {
+        const img = document.createElement('img');
+        img.src     = getCdnUrl(product.img_url, 300);
+        img.loading = 'lazy';
+        li.appendChild(img);
+    }
+
+    if (isAdmin) {
+        const imgInput = document.createElement('input');
+        imgInput.type        = 'text';
+        imgInput.value       = product.img_url ?? '';
+        imgInput.placeholder = 'img_url';
+        imgInput.oninput = (e) => trackEdit(product, 'img_url', e.target.value);
+        li.appendChild(imgInput);
+
+        const titleInput = document.createElement('input');
+        titleInput.type        = 'text';
+        titleInput.value       = product.title ?? '';
+        titleInput.placeholder = 'title';
+        titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
+        li.appendChild(titleInput);
+
+        const priceInput = document.createElement('input');
+        priceInput.type        = 'number';
+        priceInput.value       = product.price ?? '';
+        priceInput.placeholder = 'price';
+        priceInput.oninput = (e) => trackEdit(product, 'price', parseFloat(e.target.value));
+        li.appendChild(priceInput);
+
+        const weightInput = document.createElement('input');
+        weightInput.type        = 'number';
+        weightInput.value       = product.weight ?? '';
+        weightInput.placeholder = 'weight';
+        weightInput.oninput = (e) => trackEdit(product, 'weight', parseFloat(e.target.value));
+        li.appendChild(weightInput);
 
 
+    } else {
+        const title = document.createElement('div');
+        title.textContent = product.title;
+        li.appendChild(title);
+
+        const price = document.createElement('div');
+        price.textContent = `$${product.price}`;
+        li.appendChild(price);
+
+        const buyWrap = document.createElement('div');
+        if (!product.stock || product.stock <= 0) {
+            buyWrap.innerHTML = `<button disabled>out of stock</button>`;
+        } else if (inCart) {
+            buyWrap.innerHTML = `<button onclick="updateQty('${product.id}', 0)">remove</button>`;
+        } else {
+            buyWrap.innerHTML = `<button onclick="addToCart('${product.id}')">buy</button>`;
+        }
+        li.appendChild(buyWrap);
+    }
+
+    return li;
+}
 // ════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════
@@ -105,11 +173,7 @@ async function init() {
         window.history.replaceState({}, document.title, '/');
     }
 
-    const today = new Date();
-    const yy = String(today.getFullYear()).slice(2);
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    document.getElementById('store-header').textContent = `${yy}-${mm}-${dd}`;
+    document.getElementById('store-header').textContent = new Date().toLocaleDateString('en-CA').slice(2).replace(/-/g, '-');
 
     const adminKey = localStorage.getItem('admin_key');
     if (adminKey) {
@@ -117,9 +181,6 @@ async function init() {
     }
 
     let productsQuery = db.from('products').select('id, title, price, weight, img_url, created_at').order('created_at', { ascending: false });
-    if (!adminKey) {
-        productsQuery = productsQuery.eq('is_public', true);
-    }
 
     const [productsReq, ratesReq] = await Promise.all([
         productsQuery,
@@ -159,79 +220,6 @@ function renderProduct(product) {
         li.onclick = () => toggleDeletion(product.id);
     }
 
-    SCHEMA.forEach(field => {
-        if (field.key === 'id') return;
-
-        if (field.key === 'img_url') {
-            const url = product.img_url;
-            if (url) {
-                const img = document.createElement('img');
-                img.src     = getCdnUrl(url, 300);
-                img.loading = 'lazy';
-                li.appendChild(img);
-            }
-            if (isAdmin && field.editable) {
-                const input = document.createElement('input');
-                input.type        = 'text';
-                input.value       = url ?? '';
-                input.placeholder = field.label;
-                input.dataset.productId = product.id || '';
-                input.dataset.newIndex  = product._newIndex ?? '';
-                input.dataset.field     = field.key;
-                input.dataset.fieldType = field.type;
-                input.oninput = (e) => handleFieldEdit(e, product);
-                li.appendChild(input);
-            }
-            return;
-        }
-
-        const label = document.createElement('div');
-        label.className = 'field-label';
-        label.textContent = field.label;
-
-        if (isAdmin && field.editable) {
-            const input = document.createElement('input');
-            input.type        = field.type === 'number' ? 'number' : 'text';
-            input.value       = product[field.key] ?? '';
-            input.placeholder = field.label;
-            input.dataset.productId = product.id    || '';
-            input.dataset.newIndex  = product._newIndex ?? '';
-            input.dataset.field     = field.key;
-            input.dataset.fieldType = field.type;
-            input.oninput = (e) => handleFieldEdit(e, product);
-            li.appendChild(label);
-            li.appendChild(input);
-        } else {
-            const span = document.createElement('div');
-            if (field.key === 'price') {
-                span.textContent = `$${product.price}`;
-            } else if (field.key === 'title') {
-                span.textContent = product.title;
-            } else {
-                span.textContent = product[field.key] ?? '';
-            }
-            if (!isAdmin) li.appendChild(label);
-            li.appendChild(span);
-        }
-    });
-
-    if (!isAdmin) {
-        const buyWrap = document.createElement('div');
-        buyWrap.style.marginTop = '8px';
-        if (!product.stock || product.stock <= 0) {
-            buyWrap.innerHTML = `<button disabled>out of stock</button>`;
-        } else if (inCart) {
-            buyWrap.innerHTML = `
-                <button onclick="updateQty('${product.id}', 0)">remove</button>
-                ${product.stock > 1
-                    ? `<input type="number" value="${inCart.qty}" min="1" max="${product.stock}" style="width:40px;" onchange="updateQty('${product.id}', this.value)">`
-                    : ''}`;
-        } else {
-            buyWrap.innerHTML = `<button onclick="addToCart('${product.id}')">buy</button>`;
-        }
-        li.appendChild(buyWrap);
-    }
-
     return li;
 }
 
@@ -254,12 +242,7 @@ function render() {
 // ════════════════════════════════════════════════
 let pendingEdits = {};
 
-function handleFieldEdit(e, product) {
-    const field     = e.target.dataset.field;
-    const fieldType = e.target.dataset.fieldType;
-    const rawVal    = e.target.value;
-    const value     = fieldType === 'number' ? parseFloat(rawVal) : rawVal;
-
+function trackEdit(product, field, value) {
     if (product.id) {
         if (!pendingEdits[product.id]) pendingEdits[product.id] = {};
         pendingEdits[product.id][field] = value;
@@ -279,14 +262,8 @@ function triggerUpload() {
 
 async function handleUpload(files) {
     for (const file of Array.from(files)) {
-        const url      = await uploadSingleImage(file);
-        const newEntry = {
-            title:   '',
-            price:   '',
-            weight:  '',
-            img_url: url,
-        };
-        newProducts.push(newEntry);
+        const url = await uploadSingleImage(file);
+        newProducts.push({ title: '', price: '', weight: '', img_url: url });
     }
     render();
 }

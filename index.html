@@ -12,16 +12,6 @@
 </head>
 <body>
 
-<!-- ── Admin Bar (sticky, shown only when logged in) ── -->
-<div id="admin-bar" class="hidden">
-    <span>admin</span>
-    <button id="btn-upload" onclick="triggerUpload()">upload</button>
-    <button id="btn-delete" onclick="toggleDeleteMode()">delete</button>
-    <button id="btn-save" onclick="saveAll()">save</button>
-    <button onclick="logout()" style="margin-left: auto;">logout</button>
-    <input type="file" id="upload-input" multiple accept="image/*" style="display:none" onchange="handleUpload(this.files)">
-</div>
-
 <!-- ── Store Header ── -->
 <div id="store-front">
     <h3 id="store-header"></h3>
@@ -59,88 +49,16 @@
     </div>
 </div>
 
+<div id="admin-bar" class="hidden">
+    <span>admin</span>
+    <button id="btn-upload" onclick="triggerUpload()">upload</button>
+    <button id="btn-save" onclick="saveAll()">save</button>
+    <button onclick="logout()" style="margin-left: auto;">logout</button>
+    <input type="file" id="upload-input" multiple accept="image/*" style="display:none" onchange="handleUpload(this.files)">
+</div>
+
 <script>
 
-// ════════════════════════════════════════════════
-// RENDER
-// One function for every product, public and admin.
-// ════════════════════════════════════════════════
-function getCdnUrl(url, width) {
-    return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&fit=contain`;
-}
-
-function renderProduct(product) {
-    const isAdmin   = !!localStorage.getItem('admin_key');
-    const isDeleted = deletedIds.has(product.id);
-    const inCart    = cart[product.id];
-    const liId      = product.id ? `product-${product.id}` : `product-new-${product._newIndex}`;
-
-    const li = document.createElement('li');
-    li.id = liId;
-    if (isDeleted) li.style.opacity = '0.4';
-
-    if (isAdmin && deleteMode && product.id) {
-        li.style.cursor = 'pointer';
-        li.onclick = () => toggleDeletion(product.id);
-    }
-
-    if (product.img_url) {
-        const img = document.createElement('img');
-        img.src     = getCdnUrl(product.img_url, 300);
-        img.loading = 'lazy';
-        li.appendChild(img);
-    }
-
-    if (isAdmin) {
-        const imgInput = document.createElement('input');
-        imgInput.type        = 'text';
-        imgInput.value       = product.img_url ?? '';
-        imgInput.placeholder = 'img_url';
-        imgInput.oninput = (e) => trackEdit(product, 'img_url', e.target.value);
-        li.appendChild(imgInput);
-
-        const titleInput = document.createElement('input');
-        titleInput.type        = 'text';
-        titleInput.value       = product.title ?? '';
-        titleInput.placeholder = 'title';
-        titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
-        li.appendChild(titleInput);
-
-        const priceInput = document.createElement('input');
-        priceInput.type        = 'number';
-        priceInput.value       = product.price ?? '';
-        priceInput.placeholder = 'price';
-        priceInput.oninput = (e) => trackEdit(product, 'price', parseFloat(e.target.value));
-        li.appendChild(priceInput);
-
-        const weightInput = document.createElement('input');
-        weightInput.type        = 'number';
-        weightInput.value       = product.weight ?? '';
-        weightInput.placeholder = 'weight';
-        weightInput.oninput = (e) => trackEdit(product, 'weight', parseFloat(e.target.value));
-        li.appendChild(weightInput);
-
-
-    } else {
-        const title = document.createElement('div');
-        title.textContent = product.title;
-        li.appendChild(title);
-
-        const price = document.createElement('div');
-        price.textContent = `$${product.price}`;
-        li.appendChild(price);
-
-        const buyWrap = document.createElement('div');
-        if (inCart) {
-            buyWrap.innerHTML = `<button onclick="updateQty('${product.id}', 0)">remove</button>`;
-        } else {
-            buyWrap.innerHTML = `<button onclick="addToCart('${product.id}')">buy</button>`;
-        }
-        li.appendChild(buyWrap);
-    }
-
-    return li;
-}
 // ════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════
@@ -149,13 +67,12 @@ const db = supabase.createClient(
     'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC'
 );
 
-let inventory     = [];
-let cart          = {};
-let deleteMode    = false;
-let deletedIds    = new Set();
-let newProducts   = [];
-
-
+let inventory = [];
+let cart = {};
+let deletedIds = new Set();
+let newProducts = [];
+let pendingEdits = {};
+    
 // ════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════
@@ -193,29 +110,72 @@ async function init() {
     render();
 }
 
-
 // ════════════════════════════════════════════════
-// RENDER
-// One function for every product, public and admin.
+// RENDER LOGIC
 // ════════════════════════════════════════════════
 function getCdnUrl(url, width) {
     return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&fit=contain`;
 }
 
 function renderProduct(product) {
-    const isAdmin     = !!localStorage.getItem('admin_key');
-    const isNew       = !product.id;
-    const isDeleted   = deletedIds.has(product.id);
-    const inCart      = cart[product.id];
-    const liId        = product.id ? `product-${product.id}` : `product-new-${product._newIndex}`;
+    const isAdmin = !!localStorage.getItem('admin_key');
+    const inCart = cart[product.id];
+    const isDeleted = deletedIds.has(product.id);
+    const liId = product.id ? `product-${product.id}` : `product-new-${product._newIndex}`;
 
     const li = document.createElement('li');
-    li.className = 'product-item' + (isDeleted ? ' marked-for-deletion' : '');
     li.id = liId;
+    if (isDeleted) li.style.opacity = '0.3';
 
-    if (isAdmin && deleteMode && product.id) {
-        li.style.cursor = 'pointer';
-        li.onclick = () => toggleDeletion(product.id);
+    // Image Preview
+    if (product.img_url) {
+        const img = document.createElement('img');
+        img.src = getCdnUrl(product.img_url, 300);
+        img.style.display = 'block';
+        img.style.width = '100px'; 
+        li.appendChild(img);
+    }
+
+    if (isAdmin) {
+        // Admin Inputs
+        const fields = ['img_url', 'title', 'price', 'weight'];
+        fields.forEach(field => {
+            const input = document.createElement('input');
+            input.type = (field === 'price' || field === 'weight') ? 'number' : 'text';
+            input.value = product[field] ?? '';
+            input.placeholder = field;
+            input.oninput = (e) => trackEdit(product, field, input.type === 'number' ? parseFloat(e.target.value) : e.target.value);
+            li.appendChild(input);
+        });
+
+        // Delete Button (Specific to Admin)
+        const delBtn = document.createElement('button');
+        delBtn.textContent = isDeleted ? 'undo del' : 'delete';
+        delBtn.onclick = () => {
+            if (product.id) {
+                isDeleted ? deletedIds.delete(product.id) : deletedIds.add(product.id);
+            } else {
+                // If it's a fresh upload not yet saved, just remove from memory
+                newProducts.splice(product._newIndex, 1);
+            }
+            render();
+        };
+        li.appendChild(delBtn);
+
+    } else {
+        // Public View
+        const title = document.createElement('div');
+        title.textContent = product.title;
+        li.appendChild(title);
+
+        const price = document.createElement('div');
+        price.textContent = `$${product.price}`;
+        li.appendChild(price);
+
+        const buyBtn = document.createElement('button');
+        buyBtn.textContent = inCart ? 'remove' : 'buy';
+        buyBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);
+        li.appendChild(buyBtn);
     }
 
     return li;
@@ -233,7 +193,85 @@ function render() {
     allProducts.forEach(p => list.appendChild(renderProduct(p)));
 }
 
+// ════════════════════════════════════════════════
+// ACTIONS
+// ════════════════════════════════════════════════
+function trackEdit(product, field, value) {
+    if (product.id) {
+        if (!pendingEdits[product.id]) pendingEdits[product.id] = {};
+        pendingEdits[product.id][field] = value;
+    } else {
+        newProducts[product._newIndex][field] = value;
+    }
+}
 
+function triggerUpload() {
+    document.getElementById('upload-input').click();
+}
+
+async function handleUpload(files) {
+    for (const file of Array.from(files)) {
+        try {
+            const url = await uploadSingleImage(file);
+            newProducts.push({ title: '', price: 0, weight: 0, img_url: url });
+            render();
+        } catch (e) {
+            console.error("Upload failed", e);
+        }
+    }
+}
+
+async function uploadSingleImage(file) {
+    const ext = file.name.split('.').pop();
+    const filePath = `covers/${Math.random()}-${Date.now()}.${ext}`;
+    const { error } = await db.storage.from('product-media').upload(filePath, file);
+    if (error) throw error;
+    const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(filePath);
+    return publicUrl;
+}
+
+async function saveAll() {
+    const btn = document.getElementById('btn-save');
+    const key = localStorage.getItem('admin_key');
+    btn.disabled = true;
+    btn.textContent = 'saving...';
+
+    const promises = [];
+
+    // 1. Updates
+    Object.entries(pendingEdits).forEach(([id, fields]) => {
+        promises.push(fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({ key, data: { id, ...fields } }),
+        }));
+    });
+
+    // 2. New Products
+    newProducts.forEach(p => {
+        if (!p.title) return; // Don't save empty titles
+        promises.push(fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({ key, data: p }),
+        }));
+    });
+
+    // 3. Deletions
+    deletedIds.forEach(id => {
+        promises.push(fetch('/.netlify/functions/manage-products', {
+            method: 'DELETE',
+            body: JSON.stringify({ key, data: { id } }),
+        }));
+    });
+
+    try {
+        await Promise.all(promises);
+        location.reload();
+    } catch (err) {
+        alert('Save error: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = 'save';
+    }
+}
 // ════════════════════════════════════════════════
 // FIELD EDITING
 // Keep pending edits in-memory until save.

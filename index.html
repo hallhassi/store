@@ -11,44 +11,6 @@
     </style>
 </head>
 <body>
-
-<!-- ── Store Header ── -->
-<div id="store-front">
-    <h3 id="store-header"></h3>
-    <ul id="product-list"></ul>
-</div>
-
-<!-- ── Cart / Checkout ── -->
-<div id="cart-wrapper" class="hidden">
-    <div>
-        <h3>shipping</h3>
-        <ul>
-            <li><input type="radio" id="usa" name="region" value="usa" onclick="updateTotal()"><label for="usa">USA</label></li>
-            <li><input type="radio" id="canada" name="region" value="canada" onclick="updateTotal()"><label for="canada">Canada</label></li>
-            <li><input type="radio" id="intl" name="region" value="row" onclick="updateTotal()"><label for="intl">Rest of World</label></li>
-        </ul>
-    </div>
-    <div>
-        <h3>payment</h3>
-        <ul>
-            <li><input type="radio" id="pay_paypal" name="method" value="paypal" onclick="updateTotal()"><label for="pay_paypal">PayPal</label></li>
-            <li><input type="radio" id="pay_zelle" name="method" value="zelle" onclick="updateTotal()"><label for="pay_zelle">Zelle</label></li>
-            <li><input type="radio" id="pay_card" name="method" value="card" onclick="updateTotal()"><label for="pay_card">Credit Card</label></li>
-        </ul>
-    </div>
-    <div id="total-section" class="hidden">
-        <h3>total</h3>
-        <ul id="summary-list"></ul>
-    </div>
-    <div id="checkout-section" class="hidden">
-        <h3>checkout</h3>
-        <ul>
-            <li><button onclick="handleCheckout()">checkout</button></li>
-            <li id="paypal-button-container" class="hidden"></li>
-        </ul>
-    </div>
-</div>
-
 <div id="admin-bar" class="hidden">
     <span>admin</span>
     <button id="btn-upload" onclick="triggerUpload()">upload</button>
@@ -58,7 +20,6 @@
 </div>
 
 <script>
-
 // ════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════
@@ -72,43 +33,6 @@ let cart = {};
 let deletedIds = new Set();
 let newProducts = [];
 let pendingEdits = {};
-    
-// ════════════════════════════════════════════════
-// INIT
-// ════════════════════════════════════════════════
-async function init() {
-    const urlParams = new URLSearchParams(window.location.search);
-
-    if (urlParams.get('session') === 'success') {
-        localStorage.removeItem('cart');
-        cart = {};
-        const msg = document.createElement('p');
-        msg.innerHTML = '<strong>order received. thank you.</strong>';
-        document.body.prepend(msg);
-        window.history.replaceState({}, document.title, '/');
-    }
-
-    document.getElementById('store-header').textContent = new Date().toLocaleDateString('en-CA').slice(2).replace(/-/g, '-');
-
-    const adminKey = localStorage.getItem('admin_key');
-    if (adminKey) {
-        document.getElementById('admin-bar').classList.remove('hidden');
-    }
-
-    let productsQuery = db.from('products').select('id, title, price, weight, img_url, created_at').order('created_at', { ascending: false });
-
-    const [productsReq, ratesReq] = await Promise.all([
-        productsQuery,
-        db.from('shipping_rates').select('*'),
-    ]);
-
-    if (productsReq.error) return;
-
-    inventory       = productsReq.data || [];
-    window.allRates = ratesReq.data    || [];
-
-    render();
-}
 
 // ════════════════════════════════════════════════
 // RENDER LOGIC
@@ -208,16 +132,75 @@ function trackEdit(product, field, value) {
 function triggerUpload() {
     document.getElementById('upload-input').click();
 }
-
 async function handleUpload(files) {
     for (const file of Array.from(files)) {
         try {
             const url = await uploadSingleImage(file);
+            // Push a placeholder object so render() has something to work with
             newProducts.push({ title: '', price: 0, weight: 0, img_url: url });
             render();
         } catch (e) {
             console.error("Upload failed", e);
+            alert("Upload failed: " + e.message);
         }
+    }
+}
+
+async function saveAll() {
+    const btn = document.getElementById('btn-save');
+    const key = localStorage.getItem('admin_key');
+    
+    // Prevent double-clicks
+    btn.disabled = true;
+    btn.textContent = 'saving...';
+
+    const promises = [];
+
+    // 1. Queue Updates for existing products
+    Object.entries(pendingEdits).forEach(([id, fields]) => {
+        // If the ID is also in deletedIds, skip updating it
+        if (deletedIds.has(id)) return;
+        
+        promises.push(fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({ key, data: { id, ...fields } }),
+        }));
+    });
+
+    // 2. Queue New Products (only those with a title)
+    newProducts.forEach(p => {
+        if (!p.title) return; 
+        promises.push(fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({ key, data: p }),
+        }));
+    });
+
+    // 3. Queue Deletions
+    deletedIds.forEach(id => {
+        promises.push(fetch('/.netlify/functions/manage-products', {
+            method: 'DELETE',
+            body: JSON.stringify({ key, data: { id } }),
+        }));
+    });
+
+    try {
+        if (promises.length > 0) {
+            await Promise.all(promises);
+        }
+        
+        // Reset local state
+        pendingEdits = {};
+        newProducts = [];
+        deletedIds = new Set();
+        
+        // Refresh to show the new database state
+        location.reload();
+    } catch (err) {
+        alert('Save error: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'save';
     }
 }
 
@@ -229,157 +212,7 @@ async function uploadSingleImage(file) {
     const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(filePath);
     return publicUrl;
 }
-
-async function saveAll() {
-    const btn = document.getElementById('btn-save');
-    const key = localStorage.getItem('admin_key');
-    btn.disabled = true;
-    btn.textContent = 'saving...';
-
-    const promises = [];
-
-    // 1. Updates
-    Object.entries(pendingEdits).forEach(([id, fields]) => {
-        promises.push(fetch('/.netlify/functions/manage-products', {
-            method: 'POST',
-            body: JSON.stringify({ key, data: { id, ...fields } }),
-        }));
-    });
-
-    // 2. New Products
-    newProducts.forEach(p => {
-        if (!p.title) return; // Don't save empty titles
-        promises.push(fetch('/.netlify/functions/manage-products', {
-            method: 'POST',
-            body: JSON.stringify({ key, data: p }),
-        }));
-    });
-
-    // 3. Deletions
-    deletedIds.forEach(id => {
-        promises.push(fetch('/.netlify/functions/manage-products', {
-            method: 'DELETE',
-            body: JSON.stringify({ key, data: { id } }),
-        }));
-    });
-
-    try {
-        await Promise.all(promises);
-        location.reload();
-    } catch (err) {
-        alert('Save error: ' + err.message);
-        btn.disabled = false;
-        btn.textContent = 'save';
-    }
-}
-
-// ════════════════════════════════════════════════
-// ADMIN: UPLOAD
-// Creates one new in-memory product per image.
-// ════════════════════════════════════════════════
-function triggerUpload() {
-    document.getElementById('upload-input').click();
-}
-
-async function handleUpload(files) {
-    for (const file of Array.from(files)) {
-        const url = await uploadSingleImage(file);
-        newProducts.push({ title: '', price: '', weight: '', img_url: url });
-    }
-    render();
-}
-
-async function uploadSingleImage(file) {
-    const ext      = file.name.split('.').pop();
-    const filePath = `covers/${Math.random()}-${Date.now()}.${ext}`;
-    const { error } = await db.storage.from('product-media').upload(filePath, file);
-    if (error) throw error;
-    const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(filePath);
-    return publicUrl;
-}
-
-
-// ════════════════════════════════════════════════
-// ADMIN: DELETE MODE
-// Toggle; clicking a product marks/unmarks it.
-// ════════════════════════════════════════════════
-function toggleDeleteMode() {
-    deleteMode = !deleteMode;
-    document.getElementById('btn-delete').classList.toggle('active', deleteMode);
-    render();
-}
-
-function toggleDeletion(id) {
-    if (!deleteMode) return;
-    if (deletedIds.has(id)) {
-        deletedIds.delete(id);
-    } else {
-        deletedIds.add(id);
-    }
-    render();
-}
-
-
-// ════════════════════════════════════════════════
-// ADMIN: SAVE
-// Applies pending edits, inserts new products,
-// and deletes marked products via Netlify function.
-// ════════════════════════════════════════════════
-async function saveAll() {
-    const btn = document.getElementById('btn-save');
-    btn.disabled   = true;
-    btn.textContent = 'saving...';
-
-    const key = localStorage.getItem('admin_key');
-
-    try {
-        const promises = [];
-
-        Object.entries(pendingEdits).forEach(([id, fields]) => {
-            promises.push(
-                fetch('/.netlify/functions/manage-products', {
-                    method: 'POST',
-                    body: JSON.stringify({ key, data: { id, ...fields } }),
-                })
-            );
-        });
-
-        newProducts.forEach(p => {
-            if (!p.title) return;
-            promises.push(
-                fetch('/.netlify/functions/manage-products', {
-                    method: 'POST',
-                    body: JSON.stringify({ key, data: p }),
-                })
-            );
-        });
-
-        deletedIds.forEach(id => {
-            promises.push(
-                fetch('/.netlify/functions/manage-products', {
-                    method: 'DELETE',
-                    body: JSON.stringify({ key, data: { id } }),
-                })
-            );
-        });
-
-        await Promise.all(promises);
-
-        pendingEdits  = {};
-        newProducts   = [];
-        deletedIds    = new Set();
-        deleteMode    = false;
-        document.getElementById('btn-delete').classList.remove('active');
-
-        location.reload();
-    } catch (err) {
-        alert('Save error: ' + err.message);
-    } finally {
-        btn.disabled   = false;
-        btn.textContent = 'save';
-    }
-}
-
+    
 
 // ════════════════════════════════════════════════
 // CART

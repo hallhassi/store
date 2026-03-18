@@ -72,7 +72,6 @@ const SCHEMA = [
     { key: 'price',      label: 'Price',  type: 'number', editable: true  },
     { key: 'weight',     label: 'Weight', type: 'number', editable: true  },
     { key: 'img_url', label: 'Image', type: 'text', editable: true },
-    { key: 'date',       label: 'Date',   type: 'text',   editable: true  },
 ];
 
 
@@ -117,7 +116,7 @@ async function init() {
         document.getElementById('admin-bar').classList.remove('hidden');
     }
 
-    let productsQuery = db.from('products').select('id, title, price, weight, img_url, date').order('date', { ascending: false });
+    let productsQuery = db.from('products').select('id, title, price, weight, img_url, created_at').order('created_at', { ascending: false });
     if (!adminKey) {
         productsQuery = productsQuery.eq('is_public', true);
     }

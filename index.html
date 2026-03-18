@@ -6,68 +6,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://www.paypal.com/sdk/js?client-id=Abt9w5UJ8Kt5llcvSSSpjR5QfkT3OHBYV0U4uytXODmMdyM8YL0UwRIHUyLhtoMXnPwgHIu6qwjlfW3n&currency=USD"></script>
     <style>
-        body { font-family: monospace; max-width: 700px; margin: 0 auto; padding: 20px; }
         .hidden { display: none; }
-        img { width: auto; height: auto; max-width: 100%; display: block; }
-
-        /* ── Admin Bar ── */
-        #admin-bar {
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            background: #111;
-            color: #fff;
-            padding: 8px 12px;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-        #admin-bar button {
-            background: #333;
-            color: #fff;
-            border: 1px solid #555;
-            padding: 4px 10px;
-            cursor: pointer;
-            font-family: monospace;
-        }
-        #admin-bar button:hover { background: #555; }
-        #admin-bar button.active { background: #c00; border-color: #f00; }
-
-        /* ── Product List ── */
-        #product-list { list-style: none; padding: 0; margin: 0; }
-        .product-item {
-            border-bottom: 1px solid #eee;
-            padding: 16px 0;
-            cursor: default;
-        }
-        .product-item.marked-for-deletion {
-            opacity: 0.4;
-            background: #fff0f0;
-            outline: 2px dashed #c00;
-        }
-        .product-item input[type="text"],
-        .product-item input[type="number"],
-        .product-item input[type="date"] {
-            font-family: monospace;
-            font-size: 1em;
-            border: none;
-            border-bottom: 1px solid #aaa;
-            background: transparent;
-            width: 100%;
-            box-sizing: border-box;
-            padding: 2px 0;
-        }
-        .product-item input:focus { outline: none; border-bottom-color: #000; }
-        .product-item .field-label {
-            font-size: 0.7em;
-            color: #999;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-top: 8px;
-        }
-
-        /* ── Cart ── */
-        #cart-wrapper { margin-top: 30px; border-top: 2px solid #000; padding-top: 20px; }
+        #admin-bar { position: sticky; top: 0; }
     </style>
 </head>
 <body>
@@ -127,16 +67,13 @@
 // whether it is editable by admin.
 // ════════════════════════════════════════════════
 const SCHEMA = [
-    { key: 'id',      label: 'ID',    type: 'text',   editable: false },
-    { key: 'title',   label: 'Title', type: 'text',   editable: true  },
-    { key: 'price',   label: 'Price', type: 'number', editable: true  },
-    { key: 'weight',  label: 'Weight (g)', type: 'number', editable: true },
-    { key: 'image_urls', label: 'Images', type: 'image', editable: false },
-    { key: 'date',    label: 'Date',  type: 'date',   editable: true  },
+    { key: 'id',         label: 'ID',     type: 'text',   editable: false },
+    { key: 'title',      label: 'Title',  type: 'text',   editable: true  },
+    { key: 'price',      label: 'Price',  type: 'number', editable: true  },
+    { key: 'weight',     label: 'Weight', type: 'number', editable: true  },
+    { key: 'img_url', label: 'Image', type: 'text', editable: true },
+    { key: 'date',       label: 'Date',   type: 'text',   editable: true  },
 ];
-
-// Fields rendered as buy-button area for public view
-const PUBLIC_BUY_FIELD = { key: 'buy', type: 'buy' };
 
 
 // ════════════════════════════════════════════════
@@ -180,7 +117,7 @@ async function init() {
         document.getElementById('admin-bar').classList.remove('hidden');
     }
 
-    let productsQuery = db.from('products').select('id, title, price, weight, image_urls, date').order('date', { ascending: false });
+    let productsQuery = db.from('products').select('id, title, price, weight, img_url, date').order('date', { ascending: false });
     if (!adminKey) {
         productsQuery = productsQuery.eq('is_public', true);
     }
@@ -224,22 +161,30 @@ function renderProduct(product) {
     }
 
     SCHEMA.forEach(field => {
-        if (field.type === 'image') {
-            const urls = product.image_urls || [];
-            if (urls.length === 0) return;
-            const wrapper = document.createElement('div');
-            wrapper.className = 'product-images';
-            urls.forEach(url => {
+        if (field.key === 'id') return;
+
+        if (field.key === 'img_url') {
+            const url = product.img_url;
+            if (url) {
                 const img = document.createElement('img');
                 img.src     = getCdnUrl(url, 300);
                 img.loading = 'lazy';
-                wrapper.appendChild(img);
-            });
-            li.appendChild(wrapper);
+                li.appendChild(img);
+            }
+            if (isAdmin && field.editable) {
+                const input = document.createElement('input');
+                input.type        = 'text';
+                input.value       = url ?? '';
+                input.placeholder = field.label;
+                input.dataset.productId = product.id || '';
+                input.dataset.newIndex  = product._newIndex ?? '';
+                input.dataset.field     = field.key;
+                input.dataset.fieldType = field.type;
+                input.oninput = (e) => handleFieldEdit(e, product);
+                li.appendChild(input);
+            }
             return;
         }
-
-        if (field.key === 'id') return;
 
         const label = document.createElement('div');
         label.className = 'field-label';
@@ -247,13 +192,13 @@ function renderProduct(product) {
 
         if (isAdmin && field.editable) {
             const input = document.createElement('input');
-            input.type  = field.type === 'number' ? 'number' : (field.type === 'date' ? 'text' : 'text');
-            input.value = product[field.key] ?? '';
+            input.type        = field.type === 'number' ? 'number' : 'text';
+            input.value       = product[field.key] ?? '';
             input.placeholder = field.label;
-            input.dataset.productId  = product.id    || '';
-            input.dataset.newIndex   = product._newIndex ?? '';
-            input.dataset.field      = field.key;
-            input.dataset.fieldType  = field.type;
+            input.dataset.productId = product.id    || '';
+            input.dataset.newIndex  = product._newIndex ?? '';
+            input.dataset.field     = field.key;
+            input.dataset.fieldType = field.type;
             input.oninput = (e) => handleFieldEdit(e, product);
             li.appendChild(label);
             li.appendChild(input);
@@ -261,14 +206,10 @@ function renderProduct(product) {
             const span = document.createElement('div');
             if (field.key === 'price') {
                 span.textContent = `$${product.price}`;
-                span.style.fontWeight = 'bold';
             } else if (field.key === 'title') {
                 span.textContent = product.title;
-                span.style.fontWeight = 'bold';
             } else {
                 span.textContent = product[field.key] ?? '';
-                span.style.color = '#777';
-                span.style.fontSize = '0.85em';
             }
             if (!isAdmin) li.appendChild(label);
             li.appendChild(span);
@@ -345,12 +286,11 @@ async function handleUpload(files) {
         const mm       = String(today.getMonth() + 1).padStart(2, '0');
         const dd       = String(today.getDate()).padStart(2, '0');
         const newEntry = {
-            title:      '',
-            price:      '',
-            weight:     '',
-            image_urls: [url],
-            date:       `${yy}-${mm}-${dd}`,
-            is_public:  false,
+            title:   '',
+            price:   '',
+            weight:  '',
+            img_url: url,
+            date:    `${yy}-${mm}-${dd}`,
         };
         newProducts.push(newEntry);
     }

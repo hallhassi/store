@@ -131,9 +131,7 @@ function renderProduct(product) {
         li.appendChild(price);
 
         const buyWrap = document.createElement('div');
-        if (!product.stock || product.stock <= 0) {
-            buyWrap.innerHTML = `<button disabled>out of stock</button>`;
-        } else if (inCart) {
+        if (inCart) {
             buyWrap.innerHTML = `<button onclick="updateQty('${product.id}', 0)">remove</button>`;
         } else {
             buyWrap.innerHTML = `<button onclick="addToCart('${product.id}')">buy</button>`;
@@ -187,10 +185,10 @@ async function init() {
         db.from('shipping_rates').select('*'),
     ]);
 
-    if (productsReq.error || ratesReq.error) return;
+    if (productsReq.error) return;
 
-    inventory      = productsReq.data || [];
-    window.allRates = ratesReq.data   || [];
+    inventory       = productsReq.data || [];
+    window.allRates = ratesReq.data    || [];
 
     render();
 }

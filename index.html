@@ -7,7 +7,7 @@
     <style>
         .hidden { display: none; }
         img { width: 100px; display: block; }
-        header { position: sticky; top: 0; background: white; border-bottom: 1px solid #ccc; padding: 5px; display: flex; gap: 10px; align-items: center; z-index: 100; }
+        /* Header CSS removed */
     </style>
 </head>
 <body>
@@ -93,8 +93,13 @@ function updateHeader() {
 
 function renderProduct(product) {
     const isAdmin = !!localStorage.getItem('admin_key');
+    const inCart = !!cart[product.id];
+    const isDeleted = deletedIds.has(product.id);
+    const isSold = product.sold === true;
+
     const div = document.createElement('div');
-    if (deletedIds.has(product.id)) div.style.opacity = '0.3';
+    // Apply opacity if deleted (Admin) or in cart (Buyer)
+    if (isDeleted || inCart) div.style.opacity = '0.3';
 
     if (product.img_url) {
         const img = document.createElement('img');
@@ -110,16 +115,15 @@ function renderProduct(product) {
 
     if (isAdmin) {
         const delBtn = document.createElement('button');
-        delBtn.textContent = deletedIds.has(product.id) ? 'undo' : 'del';
+        delBtn.textContent = isDeleted ? 'undo' : 'del';
         delBtn.onclick = () => {
-            deletedIds.has(product.id) ? deletedIds.delete(product.id) : deletedIds.add(product.id);
+            isDeleted ? deletedIds.delete(product.id) : deletedIds.add(product.id);
             render();
         };
         div.appendChild(delBtn);
-    } else if (!product.sold) {
-        const inCart = !!cart[product.id];
+    } else if (!isSold) {
         const buyBtn = document.createElement('button');
-        buyBtn.textContent = inCart ? 'remove' : 'buy';
+        buyBtn.textContent = inCart ? 'undo' : 'buy';
         buyBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);
         div.appendChild(buyBtn);
     } else {
@@ -138,8 +142,17 @@ function render() {
     allProducts.forEach(p => list.appendChild(renderProduct(p)));
 }
 
-function addToCart(id) { cart[id] = { qty: 1 }; updateHeader(); render(); }
-function updateQty(id, qty) { if (qty > 0) cart[id].qty = 1; else delete cart[id]; updateHeader(); render(); }
+function addToCart(id) { 
+    cart[id] = { qty: 1 }; 
+    updateHeader(); 
+    render(); 
+}
+
+function updateQty(id, qty) { 
+    if (qty > 0) cart[id].qty = 1; else delete cart[id]; 
+    updateHeader(); 
+    render(); 
+}
 
 async function startStripeCheckout() {
     const res = await fetch('/.netlify/functions/create-checkout', {
@@ -152,8 +165,12 @@ async function startStripeCheckout() {
 }
 
 function trackEdit(product, field, value) { 
-    if (product.id) { if (!pendingEdits[product.id]) pendingEdits[product.id] = {}; pendingEdits[product.id][field] = value; }
-    else { newProducts[product._newIndex][field] = value; }
+    if (product.id) { 
+        if (!pendingEdits[product.id]) pendingEdits[product.id] = {}; 
+        pendingEdits[product.id][field] = value; 
+    } else { 
+        newProducts[product._newIndex][field] = value; 
+    }
 }
 
 async function handleUpload(files) {

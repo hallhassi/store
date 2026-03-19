@@ -8,7 +8,7 @@
     <style>
         .hidden { display: none; }
         img { width: 100px; display: block; }
-        #admin-bar { position: sticky; top: 0; background: white; }
+        #admin-bar { position: sticky; top: 0; background: white; border-bottom: 1px solid #ccc; padding: 5px; }
     </style>
 </head>
 <body>
@@ -19,10 +19,6 @@
         <button onclick="triggerUpload()">upload</button>
         <button onclick="saveAll()">save</button>
     </span>
-    <span id="buyer-controls">
-        <button onclick="handleCheckout()">pay</button>
-    </span>
-    <button id="auth-btn" onclick="handleAuthAction()" style="margin-left: auto;">login</button>
     <input type="file" id="upload-input" multiple accept="image/*" style="display:none" onchange="handleUpload(this.files)">
 </div>
 
@@ -30,17 +26,7 @@
     <div id="product-list"></div>
 </div>
 
-<div id="cart-wrapper" class="hidden">
-    <h3>payment</h3>
-    <input type="radio" id="pay_paypal" name="method" value="paypal" onclick="updateTotal()"><label for="pay_paypal">PayPal</label>
-    <input type="radio" id="pay_zelle" name="method" value="zelle" onclick="updateTotal()"><label for="pay_zelle">Zelle</label>
-    <input type="radio" id="pay_card" name="method" value="card" onclick="updateTotal()"><label for="pay_card">Credit Card</label>
-    
-    <div id="total-section" class="hidden">
-        <ul id="summary-list"></ul>
-        <div id="paypal-button-container" class="hidden"></div>
-    </div>
-</div>
+<div id="cart-display"></div>
 
 <script>
 const db = supabase.createClient(
@@ -56,13 +42,11 @@ let newProducts = [];
 let pendingEdits = {};
 
 async function init() {
+    // Admin check via URL param or existing localStorage only
     const isAdmin = !!localStorage.getItem('admin_key');
-    document.getElementById('header-type').textContent = isAdmin ? 'admin' : 'shop';
-    document.getElementById('auth-btn').textContent = isAdmin ? 'logout' : 'login';
-    
     if (isAdmin) {
+        document.getElementById('header-type').textContent = 'admin';
         document.getElementById('admin-controls').classList.remove('hidden');
-        document.getElementById('buyer-controls').classList.add('hidden');
     }
 
     let productsReq = await db.from('products')
@@ -94,14 +78,12 @@ function renderProduct(product) {
         div.appendChild(img);
     }
 
-    // Both Admin and Buyer see an Input field
     const titleInput = document.createElement('input');
     titleInput.value = product.title ?? '';
     
     if (isAdmin) {
         titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
         div.appendChild(titleInput);
-
         const delBtn = document.createElement('button');
         delBtn.textContent = isDeleted ? 'undo' : 'del';
         delBtn.onclick = () => {
@@ -114,7 +96,6 @@ function renderProduct(product) {
         };
         div.appendChild(delBtn);
     } else {
-        // Buyer View: Read-only input
         titleInput.readOnly = true;
         div.appendChild(titleInput);
 
@@ -147,6 +128,52 @@ function render() {
         }
         list.appendChild(renderProduct(p));
     });
+    renderCart();
+}
+
+function renderCart() {
+    const container = document.getElementById('cart-display');
+    const cartIds = Object.keys(cart);
+    
+    if (cartIds.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    let subtotal = cartIds.length * FLAT_PRICE;
+    let cardTotal = (subtotal + 0.30) / (1 - 0.029);
+    let paypalTotal = (subtotal + 0.49) / (1 - 0.044);
+
+    let html = '<ul>';
+    cartIds.forEach(id => {
+        const item = inventory.find(p => p.id === id);
+        html += `<li>$0.67 ${item?.title || 'Item'}</li>`;
+    });
+    html += `<li>subtotal: $${subtotal.toFixed(2)}</li>`;
+    html += `<li><button onclick="startCheckout('card')">pay $${cardTotal.toFixed(2)} with credit card</button></li>`;
+    html += `<li><button onclick="startCheckout('paypal')">pay $${paypalTotal.toFixed(2)} with paypal</button></li>`;
+    html += '</ul>';
+    
+    container.innerHTML = html;
+}
+
+function startCheckout(method) {
+    if (method === 'paypal') {
+        // Trigger invisible PayPal flow or redirect
+        handleCheckout('paypal');
+    } else {
+        handleCheckout('card');
+    }
+}
+
+async function handleCheckout(method) {
+    const res = await fetch('/.netlify/functions/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart, method }),
+    });
+    const data = await res.json();
+    if (data.url) window.location.href = data.url;
 }
 
 function trackEdit(product, field, value) {
@@ -201,100 +228,13 @@ async function saveAll() {
 }
 
 function addToCart(id) {
-    document.getElementById('cart-wrapper').classList.remove('hidden');
     cart[id] = { qty: 1 };
     render();
-    updateTotal();
 }
 
 function updateQty(id, qty) {
     if (parseInt(qty) > 0) cart[id].qty = 1; else delete cart[id];
     render();
-    updateTotal();
-}
-
-function calculateLocally() {
-    const method = document.querySelector('input[name="method"]:checked')?.value;
-    if (Object.keys(cart).length === 0 || !method) return null;
-    let subtotal = Object.keys(cart).length * FLAT_PRICE;
-    let total = subtotal;
-    if (method === 'card') total = (total + 0.30) / (1 - 0.029);
-    if (method === 'paypal') total = (total + 0.49) / (1 - 0.044);
-    return { total, subtotal };
-}
-
-function updateTotal() {
-    const result = calculateLocally();
-    const totalSection = document.getElementById('total-section');
-    const paypalContainer = document.getElementById('paypal-button-container');
-    const method = document.querySelector('input[name="method"]:checked')?.value;
-
-    if (!result) {
-        totalSection.classList.add('hidden');
-        return;
-    }
-
-    document.getElementById('summary-list').innerHTML = `<li>total: $${result.total.toFixed(2)}</li>`;
-    totalSection.classList.remove('hidden');
-
-    if (method === 'paypal') {
-        paypalContainer.classList.remove('hidden');
-        renderPayPal();
-    } else {
-        paypalContainer.classList.add('hidden');
-    }
-}
-
-async function handleCheckout() {
-    const method = document.querySelector('input[name="method"]:checked')?.value;
-    if (!method) {
-        alert('select a payment method first');
-        document.getElementById('cart-wrapper').classList.remove('hidden');
-        return;
-    }
-    if (method === 'zelle') { alert('zelle details...'); return; }
-    
-    const res = await fetch('/.netlify/functions/create-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cart, method }),
-    });
-    const data = await res.json();
-    if (data.url) window.location.href = data.url;
-}
-
-function renderPayPal() {
-    const container = document.getElementById('paypal-button-container');
-    container.innerHTML = '';
-    paypal.Buttons({
-        createOrder: async (data, actions) => {
-            const response = await fetch('/.netlify/functions/create-checkout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cart, method: 'paypal' }),
-            });
-            const result = await response.json();
-            return actions.order.create({ purchase_units: [{ amount: { value: result.total.toFixed(2) } }] });
-        },
-        onApprove: async (data, actions) => {
-            await actions.order.capture();
-            window.location.href = '/?session=success';
-        },
-    }).render('#paypal-button-container');
-}
-
-function handleAuthAction() {
-    const isAdmin = !!localStorage.getItem('admin_key');
-    if (isAdmin) {
-        localStorage.removeItem('admin_key');
-        location.reload();
-    } else {
-        const pass = prompt("password:");
-        if (pass) {
-            localStorage.setItem('admin_key', pass);
-            location.reload();
-        }
-    }
 }
 
 init();

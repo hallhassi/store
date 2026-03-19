@@ -12,10 +12,6 @@
 </head>
 <body>
 
-<div id="store-front">
-    <div id="product-list"></div>
-</div>
-
 <div id="admin-bar" class="hidden">
     <span>admin</span>
     <button id="btn-upload" onclick="triggerUpload()">upload</button>
@@ -24,6 +20,10 @@
     <input type="file" id="upload-input" multiple accept="image/*" style="display:none" onchange="handleUpload(this.files)">
 </div>
     
+<div id="store-front">
+    <div id="product-list"></div>
+</div>
+
 <div id="cart-wrapper" class="hidden">
     <div>
         <h3>payment</h3>

@@ -75,7 +75,7 @@ function updateHeader() {
     } else {
         const count = Object.keys(cart).length;
         const label = document.createElement('span');
-        label.textContent = `hires(${count})`;
+        label.textContent = 'pay';
         header.appendChild(label);
 
         if (count > 0) {
@@ -83,7 +83,7 @@ function updateHeader() {
             const cardTotal = (subtotal + 0.30) / (1 - 0.029);
 
             const payBtn = document.createElement('button');
-            payBtn.textContent = `pay $${cardTotal.toFixed(2)} with credit card`;
+            payBtn.textContent = cardTotal.toFixed(2);
             payBtn.onclick = startStripeCheckout;
             header.appendChild(payBtn);
         }

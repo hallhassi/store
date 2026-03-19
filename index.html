@@ -8,36 +8,36 @@
     <style>
         .hidden { display: none; }
         img { width: 100px; display: block; }
+        #admin-bar { position: sticky; top: 0; background: white; }
     </style>
 </head>
 <body>
-
-<div id="admin-bar" class="hidden">
-    <span>admin</span>
-    <button id="btn-upload" onclick="triggerUpload()">upload</button>
-    <button id="btn-save" onclick="saveAll()">save</button>
-    <button onclick="logout()">logout</button>
+    
+<div id="admin-bar">
+    <span id="header-type">shop</span>
+    <span id="admin-controls" class="hidden">
+        <button onclick="triggerUpload()">upload</button>
+        <button onclick="saveAll()">save</button>
+    </span>
+    <span id="buyer-controls">
+        <button onclick="handleCheckout()">pay</button>
+    </span>
+    <button id="auth-btn" onclick="handleAuthAction()" style="margin-left: auto;">login</button>
     <input type="file" id="upload-input" multiple accept="image/*" style="display:none" onchange="handleUpload(this.files)">
 </div>
-    
+
 <div id="store-front">
     <div id="product-list"></div>
 </div>
 
 <div id="cart-wrapper" class="hidden">
-    <div>
-        <h3>payment</h3>
-        <input type="radio" id="pay_paypal" name="method" value="paypal" onclick="updateTotal()"><label for="pay_paypal">PayPal</label>
-        <input type="radio" id="pay_zelle" name="method" value="zelle" onclick="updateTotal()"><label for="pay_zelle">Zelle</label>
-        <input type="radio" id="pay_card" name="method" value="card" onclick="updateTotal()"><label for="pay_card">Credit Card</label>
-    </div>
+    <h3>payment</h3>
+    <input type="radio" id="pay_paypal" name="method" value="paypal" onclick="updateTotal()"><label for="pay_paypal">PayPal</label>
+    <input type="radio" id="pay_zelle" name="method" value="zelle" onclick="updateTotal()"><label for="pay_zelle">Zelle</label>
+    <input type="radio" id="pay_card" name="method" value="card" onclick="updateTotal()"><label for="pay_card">Credit Card</label>
+    
     <div id="total-section" class="hidden">
-        <h3>total</h3>
         <ul id="summary-list"></ul>
-    </div>
-    <div id="checkout-section" class="hidden">
-        <h3>checkout</h3>
-        <button onclick="handleCheckout()">checkout</button>
         <div id="paypal-button-container" class="hidden"></div>
     </div>
 </div>
@@ -49,7 +49,6 @@ const db = supabase.createClient(
 );
 
 const FLAT_PRICE = 0.67;
-
 let inventory = [];
 let cart = {};
 let deletedIds = new Set();
@@ -57,16 +56,14 @@ let newProducts = [];
 let pendingEdits = {};
 
 async function init() {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('session') === 'success') {
-        localStorage.removeItem('cart');
-        cart = {};
-        alert('order received');
-        window.history.replaceState({}, document.title, '/');
+    const isAdmin = !!localStorage.getItem('admin_key');
+    document.getElementById('header-type').textContent = isAdmin ? 'admin' : 'shop';
+    document.getElementById('auth-btn').textContent = isAdmin ? 'logout' : 'login';
+    
+    if (isAdmin) {
+        document.getElementById('admin-controls').classList.remove('hidden');
+        document.getElementById('buyer-controls').classList.add('hidden');
     }
-
-    const adminKey = localStorage.getItem('admin_key');
-    if (adminKey) document.getElementById('admin-bar').classList.remove('hidden');
 
     let productsReq = await db.from('products')
         .select('id, title, img_url, created_at, sold')
@@ -84,9 +81,9 @@ function formatDate(dateStr) {
 
 function renderProduct(product) {
     const isAdmin = !!localStorage.getItem('admin_key');
-    const inCart = cart[product.id];
-    const isDeleted = deletedIds.has(product.id);
     const isSold = product.sold === true;
+    const inCart = !!cart[product.id];
+    const isDeleted = deletedIds.has(product.id);
 
     const div = document.createElement('div');
     if (isDeleted) div.style.opacity = '0.3';
@@ -97,20 +94,13 @@ function renderProduct(product) {
         div.appendChild(img);
     }
 
+    // Both Admin and Buyer see an Input field
+    const titleInput = document.createElement('input');
+    titleInput.value = product.title ?? '';
+    
     if (isAdmin) {
-        const titleInput = document.createElement('input');
-        titleInput.value = product.title ?? '';
         titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
         div.appendChild(titleInput);
-
-        const soldLabel = document.createElement('label');
-        const soldCheck = document.createElement('input');
-        soldCheck.type = 'checkbox';
-        soldCheck.checked = isSold;
-        soldCheck.onchange = (e) => trackEdit(product, 'sold', e.target.checked);
-        soldLabel.appendChild(soldCheck);
-        soldLabel.append(" sold");
-        div.appendChild(soldLabel);
 
         const delBtn = document.createElement('button');
         delBtn.textContent = isDeleted ? 'undo' : 'del';
@@ -124,13 +114,9 @@ function renderProduct(product) {
         };
         div.appendChild(delBtn);
     } else {
-        const title = document.createElement('div');
-        title.textContent = product.title;
-        div.appendChild(title);
-
-        const priceDisplay = document.createElement('div');
-        priceDisplay.textContent = `$${FLAT_PRICE.toFixed(2)}`;
-        div.appendChild(priceDisplay);
+        // Buyer View: Read-only input
+        titleInput.readOnly = true;
+        div.appendChild(titleInput);
 
         const buyBtn = document.createElement('button');
         if (isSold) {
@@ -190,7 +176,6 @@ async function handleUpload(files) {
 async function saveAll() {
     const key = localStorage.getItem('admin_key');
     const promises = [];
-
     Object.entries(pendingEdits).forEach(([id, fields]) => {
         if (deletedIds.has(id)) return;
         promises.push(fetch('/.netlify/functions/manage-products', {
@@ -198,7 +183,6 @@ async function saveAll() {
             body: JSON.stringify({ key, data: { id, ...fields } }),
         }));
     });
-
     newProducts.forEach(p => {
         if (!p.title) return; 
         promises.push(fetch('/.netlify/functions/manage-products', {
@@ -206,14 +190,12 @@ async function saveAll() {
             body: JSON.stringify({ key, data: p }),
         }));
     });
-
     deletedIds.forEach(id => {
         promises.push(fetch('/.netlify/functions/manage-products', {
             method: 'DELETE',
             body: JSON.stringify({ key, data: { id } }),
         }));
     });
-
     await Promise.all(promises);
     location.reload();
 }
@@ -234,32 +216,26 @@ function updateQty(id, qty) {
 function calculateLocally() {
     const method = document.querySelector('input[name="method"]:checked')?.value;
     if (Object.keys(cart).length === 0 || !method) return null;
-
     let subtotal = Object.keys(cart).length * FLAT_PRICE;
     let total = subtotal;
     if (method === 'card') total = (total + 0.30) / (1 - 0.029);
     if (method === 'paypal') total = (total + 0.49) / (1 - 0.044);
-
-    const breakdown = [`subtotal: $${subtotal.toFixed(2)}`, `fee: $${(total - subtotal).toFixed(2)}` ];
-    return { total, breakdown };
+    return { total, subtotal };
 }
 
 function updateTotal() {
     const result = calculateLocally();
     const totalSection = document.getElementById('total-section');
-    const checkoutSection = document.getElementById('checkout-section');
     const paypalContainer = document.getElementById('paypal-button-container');
     const method = document.querySelector('input[name="method"]:checked')?.value;
 
     if (!result) {
         totalSection.classList.add('hidden');
-        checkoutSection.classList.add('hidden');
         return;
     }
 
-    document.getElementById('summary-list').innerHTML = result.breakdown.map(l => `<li>${l}</li>`).join('') + `<li>total: $${result.total.toFixed(2)}</li>`;
+    document.getElementById('summary-list').innerHTML = `<li>total: $${result.total.toFixed(2)}</li>`;
     totalSection.classList.remove('hidden');
-    checkoutSection.classList.remove('hidden');
 
     if (method === 'paypal') {
         paypalContainer.classList.remove('hidden');
@@ -271,10 +247,13 @@ function updateTotal() {
 
 async function handleCheckout() {
     const method = document.querySelector('input[name="method"]:checked')?.value;
-    if (method === 'zelle') {
-        alert('zelle details...');
+    if (!method) {
+        alert('select a payment method first');
+        document.getElementById('cart-wrapper').classList.remove('hidden');
         return;
     }
+    if (method === 'zelle') { alert('zelle details...'); return; }
+    
     const res = await fetch('/.netlify/functions/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -304,9 +283,18 @@ function renderPayPal() {
     }).render('#paypal-button-container');
 }
 
-function logout() {
-    localStorage.removeItem('admin_key');
-    location.reload();
+function handleAuthAction() {
+    const isAdmin = !!localStorage.getItem('admin_key');
+    if (isAdmin) {
+        localStorage.removeItem('admin_key');
+        location.reload();
+    } else {
+        const pass = prompt("password:");
+        if (pass) {
+            localStorage.setItem('admin_key', pass);
+            location.reload();
+        }
+    }
 }
 
 init();

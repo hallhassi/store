@@ -8,25 +8,29 @@
     <style>
         .hidden { display: none; }
         img { width: 100px; display: block; }
+        #admin-bar, #cart-bar { position: sticky; top: 0; background: white; border-bottom: 1px solid #ccc; padding: 5px; display: flex; gap: 10px; align-items: center; }
     </style>
 </head>
 <body>
-    
-<div id="admin-bar">
-    <span id="header-type"></span>
-    <span id="admin-controls" class="hidden">
-        <button onclick="triggerUpload()">upload</button>
-        <button onclick="saveAll()">save</button>
-        <button onclick="localStorage.removeItem('admin_key');window.location.href = '/';">logout</button>
-    </span>
+
+<div id="admin-bar" class="hidden">
+    <span>admin</span>
+    <button onclick="triggerUpload()">upload</button>
+    <button onclick="saveAll()">save</button>
     <input type="file" id="upload-input" multiple accept="image/*" style="display:none" onchange="handleUpload(this.files)">
+</div>
+
+<div id="cart-bar">
+    <span id="cart-count">cart(0)</span>
+    <div id="payment-buttons" class="hidden">
+        <button id="btn-card" onclick="startCheckout('card')"></button>
+        <button id="btn-paypal" onclick="startCheckout('paypal')"></button>
+    </div>
 </div>
 
 <div id="store-front">
     <div id="product-list"></div>
 </div>
-
-<div id="cart-display"></div>
 
 <script>
 const db = supabase.createClient(
@@ -42,12 +46,8 @@ let newProducts = [];
 let pendingEdits = {};
 
 async function init() {
-    // Admin check via URL param or existing localStorage only
     const isAdmin = !!localStorage.getItem('admin_key');
-    if (isAdmin) {
-        document.getElementById('header-type').textContent = 'admin';
-        document.getElementById('admin-controls').classList.remove('hidden');
-    }
+    if (isAdmin) document.getElementById('admin-bar').classList.remove('hidden');
 
     let productsReq = await db.from('products')
         .select('id, title, img_url, created_at, sold')
@@ -58,19 +58,13 @@ async function init() {
     render();
 }
 
-function formatDate(dateStr) {
-    if (!dateStr) return 'new';
-    return new Date(dateStr).toLocaleDateString('en-CA').slice(2);
-}
-
 function renderProduct(product) {
     const isAdmin = !!localStorage.getItem('admin_key');
     const isSold = product.sold === true;
     const inCart = !!cart[product.id];
-    const isDeleted = deletedIds.has(product.id);
-
+    
     const div = document.createElement('div');
-    if (isDeleted) div.style.opacity = '0.3';
+    if (deletedIds.has(product.id)) div.style.opacity = '0.3';
 
     if (product.img_url) {
         const img = document.createElement('img');
@@ -80,25 +74,19 @@ function renderProduct(product) {
 
     const titleInput = document.createElement('input');
     titleInput.value = product.title ?? '';
-    
+    titleInput.readOnly = !isAdmin;
+    if (isAdmin) titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
+    div.appendChild(titleInput);
+
     if (isAdmin) {
-        titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
-        div.appendChild(titleInput);
         const delBtn = document.createElement('button');
-        delBtn.textContent = isDeleted ? 'undo' : 'del';
+        delBtn.textContent = deletedIds.has(product.id) ? 'undo' : 'del';
         delBtn.onclick = () => {
-            if (product.id) {
-                isDeleted ? deletedIds.delete(product.id) : deletedIds.add(product.id);
-            } else {
-                newProducts.splice(product._newIndex, 1);
-            }
+            deletedIds.has(product.id) ? deletedIds.delete(product.id) : deletedIds.add(product.id);
             render();
         };
         div.appendChild(delBtn);
     } else {
-        titleInput.readOnly = true;
-        div.appendChild(titleInput);
-
         const buyBtn = document.createElement('button');
         if (isSold) {
             buyBtn.textContent = 'sold';
@@ -116,124 +104,91 @@ function render() {
     const list = document.getElementById('product-list');
     list.innerHTML = '';
     const allProducts = [...newProducts.map((p, i) => ({ ...p, _newIndex: i })), ...inventory];
-    let lastDate = null;
-
-    allProducts.forEach(p => {
-        const currentDate = formatDate(p.created_at);
-        if (currentDate !== lastDate) {
-            const dateHead = document.createElement('h3');
-            dateHead.textContent = currentDate;
-            list.appendChild(dateHead);
-            lastDate = currentDate;
-        }
-        list.appendChild(renderProduct(p));
-    });
-    renderCart();
+    
+    allProducts.forEach(p => list.appendChild(renderProduct(p)));
+    updateCartBar();
 }
 
-function renderCart() {
-    const container = document.getElementById('cart-display');
-    const cartIds = Object.keys(cart);
+function updateCartBar() {
+    const count = Object.keys(cart).length;
+    document.getElementById('cart-count').textContent = `cart(${count})`;
     
-    if (cartIds.length === 0) {
-        container.innerHTML = '';
-        return;
-    }
-
-    let subtotal = cartIds.length * FLAT_PRICE;
-    let cardTotal = (subtotal + 0.30) / (1 - 0.029);
-    let paypalTotal = (subtotal + 0.49) / (1 - 0.044);
-
-    let html = '<ul>';
-    cartIds.forEach(id => {
-        const item = inventory.find(p => p.id === id);
-        html += `<li>${item?.title || 'Item'}</li>`;
-    });
-    html += `<li><button onclick="startCheckout('card')">pay $${cardTotal.toFixed(2)} with credit card</button></li>`;
-    html += `<li><button onclick="startCheckout('paypal')">pay $${paypalTotal.toFixed(2)} with paypal</button></li>`;
-    html += '</ul>';
-    
-    container.innerHTML = html;
-}
-
-function startCheckout(method) {
-    if (method === 'paypal') {
-        // Trigger invisible PayPal flow or redirect
-        handleCheckout('paypal');
+    const btnContainer = document.getElementById('payment-buttons');
+    if (count > 0) {
+        btnContainer.classList.remove('hidden');
+        const subtotal = count * FLAT_PRICE;
+        const cardTotal = (subtotal + 0.30) / (1 - 0.029);
+        const paypalTotal = (subtotal + 0.49) / (1 - 0.044);
+        
+        document.getElementById('btn-card').textContent = `pay $${cardTotal.toFixed(2)} with credit card`;
+        document.getElementById('btn-paypal').textContent = `pay $${paypalTotal.toFixed(2)} with paypal`;
     } else {
-        handleCheckout('card');
+        btnContainer.classList.add('hidden');
     }
 }
 
-async function handleCheckout(method) {
+async function startCheckout(method) {
     const res = await fetch('/.netlify/functions/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cart, method }),
     });
     const data = await res.json();
-    if (data.url) window.location.href = data.url;
-}
 
-function trackEdit(product, field, value) {
-    if (product.id) {
-        if (!pendingEdits[product.id]) pendingEdits[product.id] = {};
-        pendingEdits[product.id][field] = value;
-    } else {
-        newProducts[product._newIndex][field] = value;
+    if (method === 'card' && data.url) {
+        window.location.href = data.url;
+    } else if (method === 'paypal' && data.total) {
+        // Since PayPal needs a specific flow, we trigger the popup 
+        // with the calculated total from the server.
+        renderPayPalPopup(data.total);
     }
 }
 
+function renderPayPalPopup(total) {
+    // We temporarily show a container to mount the SDK button
+    let container = document.getElementById('paypal-mount');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'paypal-mount';
+        document.body.appendChild(container);
+    }
+    container.innerHTML = ''; 
+    
+    paypal.Buttons({
+        createOrder: (data, actions) => {
+            return actions.order.create({
+                purchase_units: [{ amount: { value: total.toFixed(2) } }]
+            });
+        },
+        onApprove: async (data, actions) => {
+            await actions.order.capture();
+            window.location.href = '/?session=success';
+        }
+    }).render('#paypal-mount').then(() => {
+        // Click the invisible button automatically to start the flow
+        const btn = container.querySelector('[role="link"], .paypal-button');
+        if (btn) btn.click();
+    });
+}
+
+function addToCart(id) { cart[id] = { qty: 1 }; render(); }
+function updateQty(id, qty) { if (qty > 0) cart[id].qty = 1; else delete cart[id]; render(); }
 function triggerUpload() { document.getElementById('upload-input').click(); }
-
-async function handleUpload(files) {
-    for (const file of Array.from(files)) {
-        try {
-            const ext = file.name.split('.').pop();
-            const filePath = `covers/${Math.random()}-${Date.now()}.${ext}`;
-            await db.storage.from('product-media').upload(filePath, file);
-            const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(filePath);
-            newProducts.unshift({ title: '', sold: false, img_url: publicUrl });
-            render();
-        } catch (e) { alert("error: " + e.message); }
-    }
+function trackEdit(product, field, value) { 
+    if (product.id) { if (!pendingEdits[product.id]) pendingEdits[product.id] = {}; pendingEdits[product.id][field] = value; }
+    else { newProducts[product._newIndex][field] = value; }
 }
 
 async function saveAll() {
     const key = localStorage.getItem('admin_key');
     const promises = [];
     Object.entries(pendingEdits).forEach(([id, fields]) => {
-        if (deletedIds.has(id)) return;
-        promises.push(fetch('/.netlify/functions/manage-products', {
-            method: 'POST',
-            body: JSON.stringify({ key, data: { id, ...fields } }),
-        }));
+        if (!deletedIds.has(id)) promises.push(fetch('/.netlify/functions/manage-products', { method: 'POST', body: JSON.stringify({ key, data: { id, ...fields } }) }));
     });
-    newProducts.forEach(p => {
-        if (!p.title) return; 
-        promises.push(fetch('/.netlify/functions/manage-products', {
-            method: 'POST',
-            body: JSON.stringify({ key, data: p }),
-        }));
-    });
-    deletedIds.forEach(id => {
-        promises.push(fetch('/.netlify/functions/manage-products', {
-            method: 'DELETE',
-            body: JSON.stringify({ key, data: { id } }),
-        }));
-    });
+    newProducts.forEach(p => { if (p.title) promises.push(fetch('/.netlify/functions/manage-products', { method: 'POST', body: JSON.stringify({ key, data: p }) })); });
+    deletedIds.forEach(id => promises.push(fetch('/.netlify/functions/manage-products', { method: 'DELETE', body: JSON.stringify({ key, data: { id } }) })));
     await Promise.all(promises);
     location.reload();
-}
-
-function addToCart(id) {
-    cart[id] = { qty: 1 };
-    render();
-}
-
-function updateQty(id, qty) {
-    if (parseInt(qty) > 0) cart[id].qty = 1; else delete cart[id];
-    render();
 }
 
 init();

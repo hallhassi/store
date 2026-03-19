@@ -4,18 +4,15 @@
     <meta charset="UTF-8">
     <title>Storefront</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://www.paypal.com/sdk/js?client-id=Abt9w5UJ8Kt5llcvSSSpjR5QfkT3OHBYV0U4uytXODmMdyM8YL0UwRIHUyLhtoMXnPwgHIu6qwjlfW3n&currency=USD"></script>
     <style>
         .hidden { display: none; }
         img { width: 100px; display: block; }
         header { position: sticky; top: 0; background: white; border-bottom: 1px solid #ccc; padding: 5px; display: flex; gap: 10px; align-items: center; z-index: 100; }
-        #paypal-button-container { max-width: 200px; }
     </style>
 </head>
 <body>
 
-<header id="main-header">
-    </header>
+<header id="main-header"></header>
 
 <div id="store-front">
     <div id="product-list"></div>
@@ -35,7 +32,7 @@ let newProducts = [];
 let pendingEdits = {};
 
 async function init() {
-    toggleHeader();
+    updateHeader();
     
     let productsReq = await db.from('products')
         .select('id, title, img_url, created_at, sold')
@@ -46,13 +43,12 @@ async function init() {
     render();
 }
 
-function toggleHeader() {
+function updateHeader() {
     const header = document.getElementById('main-header');
     const isAdmin = !!localStorage.getItem('admin_key');
     header.innerHTML = '';
 
     if (isAdmin) {
-        // --- ADMIN HEADER ---
         const label = document.createElement('span');
         label.textContent = 'admin';
         
@@ -64,6 +60,10 @@ function toggleHeader() {
         saveBtn.textContent = 'save';
         saveBtn.onclick = saveAll;
 
+        const logoutBtn = document.createElement('button');
+        logoutBtn.textContent = 'logout';
+        logoutBtn.onclick = () => { localStorage.removeItem('admin_key'); location.reload(); };
+
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
         fileInput.id = 'upload-input';
@@ -72,29 +72,21 @@ function toggleHeader() {
         fileInput.className = 'hidden';
         fileInput.onchange = (e) => handleUpload(e.target.files);
 
-        header.append(label, upBtn, saveBtn, fileInput);
+        header.append(label, upBtn, saveBtn, logoutBtn, fileInput);
     } else {
-        // --- BUYER HEADER ---
         const count = Object.keys(cart).length;
         const label = document.createElement('span');
-        label.id = 'cart-count';
         label.textContent = `cart(${count})`;
         header.appendChild(label);
 
         if (count > 0) {
             const subtotal = count * FLAT_PRICE;
             const cardTotal = (subtotal + 0.30) / (1 - 0.029);
-            const paypalTotal = (subtotal + 0.49) / (1 - 0.044);
 
-            const cardBtn = document.createElement('button');
-            cardBtn.textContent = `pay $${cardTotal.toFixed(2)} with credit card`;
-            cardBtn.onclick = () => startStripeCheckout();
-            
-            const paypalContainer = document.createElement('div');
-            paypalContainer.id = 'paypal-button-container';
-            
-            header.append(cardBtn, paypalContainer);
-            renderPayPalButton(paypalTotal);
+            const payBtn = document.createElement('button');
+            payBtn.textContent = `pay $${cardTotal.toFixed(2)} with credit card`;
+            payBtn.onclick = startStripeCheckout;
+            header.appendChild(payBtn);
         }
     }
 }
@@ -146,8 +138,8 @@ function render() {
     allProducts.forEach(p => list.appendChild(renderProduct(p)));
 }
 
-function addToCart(id) { cart[id] = { qty: 1 }; toggleHeader(); render(); }
-function updateQty(id, qty) { if (qty > 0) cart[id].qty = 1; else delete cart[id]; toggleHeader(); render(); }
+function addToCart(id) { cart[id] = { qty: 1 }; updateHeader(); render(); }
+function updateQty(id, qty) { if (qty > 0) cart[id].qty = 1; else delete cart[id]; updateHeader(); render(); }
 
 async function startStripeCheckout() {
     const res = await fetch('/.netlify/functions/create-checkout', {
@@ -159,22 +151,6 @@ async function startStripeCheckout() {
     if (data.url) window.location.href = data.url;
 }
 
-function renderPayPalButton(total) {
-    paypal.Buttons({
-        style: { height: 25, color: 'blue', shape: 'rect', label: 'paypal' },
-        createOrder: (data, actions) => {
-            return actions.order.create({
-                purchase_units: [{ amount: { value: total.toFixed(2) } }]
-            });
-        },
-        onApprove: async (data, actions) => {
-            await actions.order.capture();
-            window.location.href = '/?session=success';
-        }
-    }).render('#paypal-button-container');
-}
-
-// Admin logic
 function trackEdit(product, field, value) { 
     if (product.id) { if (!pendingEdits[product.id]) pendingEdits[product.id] = {}; pendingEdits[product.id][field] = value; }
     else { newProducts[product._newIndex][field] = value; }

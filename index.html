@@ -146,9 +146,8 @@ function renderCart() {
     let html = '<ul>';
     cartIds.forEach(id => {
         const item = inventory.find(p => p.id === id);
-        html += `<li>$0.67 ${item?.title || 'Item'}</li>`;
+        html += `<li>${item?.title || 'Item'}</li>`;
     });
-    html += `<li>subtotal: $${subtotal.toFixed(2)}</li>`;
     html += `<li><button onclick="startCheckout('card')">pay $${cardTotal.toFixed(2)} with credit card</button></li>`;
     html += `<li><button onclick="startCheckout('paypal')">pay $${paypalTotal.toFixed(2)} with paypal</button></li>`;
     html += '</ul>';

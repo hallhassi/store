@@ -7,7 +7,6 @@
     <style>
         .hidden { display: none; }
         img { width: 100px; display: block; }
-        /* Header CSS removed */
     </style>
 </head>
 <body>
@@ -76,7 +75,7 @@ function updateHeader() {
     } else {
         const count = Object.keys(cart).length;
         const label = document.createElement('span');
-        label.textContent = `cart(${count})`;
+        label.textContent = `hires(${count})`;
         header.appendChild(label);
 
         if (count > 0) {

@@ -8,25 +8,14 @@
     <style>
         .hidden { display: none; }
         img { width: 100px; display: block; }
-        #admin-bar, #cart-bar { position: sticky; top: 0; background: white; border-bottom: 1px solid #ccc; padding: 5px; display: flex; gap: 10px; align-items: center; }
+        header { position: sticky; top: 0; background: white; border-bottom: 1px solid #ccc; padding: 5px; display: flex; gap: 10px; align-items: center; z-index: 100; }
+        #paypal-button-container { max-width: 200px; }
     </style>
 </head>
 <body>
 
-<div id="admin-bar" class="hidden">
-    <span>admin</span>
-    <button onclick="triggerUpload()">upload</button>
-    <button onclick="saveAll()">save</button>
-    <input type="file" id="upload-input" multiple accept="image/*" style="display:none" onchange="handleUpload(this.files)">
-</div>
-
-<div id="cart-bar">
-    <span id="cart-count">cart(0)</span>
-    <div id="payment-buttons" class="hidden">
-        <button id="btn-card" onclick="startCheckout('card')"></button>
-        <button id="btn-paypal" onclick="startCheckout('paypal')"></button>
-    </div>
-</div>
+<header id="main-header">
+    </header>
 
 <div id="store-front">
     <div id="product-list"></div>
@@ -46,9 +35,8 @@ let newProducts = [];
 let pendingEdits = {};
 
 async function init() {
-    const isAdmin = !!localStorage.getItem('admin_key');
-    if (isAdmin) document.getElementById('admin-bar').classList.remove('hidden');
-
+    toggleHeader();
+    
     let productsReq = await db.from('products')
         .select('id, title, img_url, created_at, sold')
         .order('created_at', { ascending: false });
@@ -58,11 +46,61 @@ async function init() {
     render();
 }
 
+function toggleHeader() {
+    const header = document.getElementById('main-header');
+    const isAdmin = !!localStorage.getItem('admin_key');
+    header.innerHTML = '';
+
+    if (isAdmin) {
+        // --- ADMIN HEADER ---
+        const label = document.createElement('span');
+        label.textContent = 'admin';
+        
+        const upBtn = document.createElement('button');
+        upBtn.textContent = 'upload';
+        upBtn.onclick = () => document.getElementById('upload-input').click();
+        
+        const saveBtn = document.createElement('button');
+        saveBtn.textContent = 'save';
+        saveBtn.onclick = saveAll;
+
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.id = 'upload-input';
+        fileInput.multiple = true;
+        fileInput.accept = 'image/*';
+        fileInput.className = 'hidden';
+        fileInput.onchange = (e) => handleUpload(e.target.files);
+
+        header.append(label, upBtn, saveBtn, fileInput);
+    } else {
+        // --- BUYER HEADER ---
+        const count = Object.keys(cart).length;
+        const label = document.createElement('span');
+        label.id = 'cart-count';
+        label.textContent = `cart(${count})`;
+        header.appendChild(label);
+
+        if (count > 0) {
+            const subtotal = count * FLAT_PRICE;
+            const cardTotal = (subtotal + 0.30) / (1 - 0.029);
+            const paypalTotal = (subtotal + 0.49) / (1 - 0.044);
+
+            const cardBtn = document.createElement('button');
+            cardBtn.textContent = `pay $${cardTotal.toFixed(2)} with credit card`;
+            cardBtn.onclick = () => startStripeCheckout();
+            
+            const paypalContainer = document.createElement('div');
+            paypalContainer.id = 'paypal-button-container';
+            
+            header.append(cardBtn, paypalContainer);
+            renderPayPalButton(paypalTotal);
+        }
+    }
+}
+
 function renderProduct(product) {
     const isAdmin = !!localStorage.getItem('admin_key');
-    const isSold = product.sold === true;
-    const inCart = !!cart[product.id];
-    
     const div = document.createElement('div');
     if (deletedIds.has(product.id)) div.style.opacity = '0.3';
 
@@ -86,16 +124,17 @@ function renderProduct(product) {
             render();
         };
         div.appendChild(delBtn);
-    } else {
+    } else if (!product.sold) {
+        const inCart = !!cart[product.id];
         const buyBtn = document.createElement('button');
-        if (isSold) {
-            buyBtn.textContent = 'sold';
-            buyBtn.disabled = true;
-        } else {
-            buyBtn.textContent = inCart ? 'remove' : 'buy';
-            buyBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);
-        }
+        buyBtn.textContent = inCart ? 'remove' : 'buy';
+        buyBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);
         div.appendChild(buyBtn);
+    } else {
+        const soldBtn = document.createElement('button');
+        soldBtn.textContent = 'sold';
+        soldBtn.disabled = true;
+        div.appendChild(soldBtn);
     }
     return div;
 }
@@ -104,57 +143,25 @@ function render() {
     const list = document.getElementById('product-list');
     list.innerHTML = '';
     const allProducts = [...newProducts.map((p, i) => ({ ...p, _newIndex: i })), ...inventory];
-    
     allProducts.forEach(p => list.appendChild(renderProduct(p)));
-    updateCartBar();
 }
 
-function updateCartBar() {
-    const count = Object.keys(cart).length;
-    document.getElementById('cart-count').textContent = `cart(${count})`;
-    
-    const btnContainer = document.getElementById('payment-buttons');
-    if (count > 0) {
-        btnContainer.classList.remove('hidden');
-        const subtotal = count * FLAT_PRICE;
-        const cardTotal = (subtotal + 0.30) / (1 - 0.029);
-        const paypalTotal = (subtotal + 0.49) / (1 - 0.044);
-        
-        document.getElementById('btn-card').textContent = `pay $${cardTotal.toFixed(2)} with credit card`;
-        document.getElementById('btn-paypal').textContent = `pay $${paypalTotal.toFixed(2)} with paypal`;
-    } else {
-        btnContainer.classList.add('hidden');
-    }
-}
+function addToCart(id) { cart[id] = { qty: 1 }; toggleHeader(); render(); }
+function updateQty(id, qty) { if (qty > 0) cart[id].qty = 1; else delete cart[id]; toggleHeader(); render(); }
 
-async function startCheckout(method) {
+async function startStripeCheckout() {
     const res = await fetch('/.netlify/functions/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cart, method }),
+        body: JSON.stringify({ cart, method: 'card' }),
     });
     const data = await res.json();
-
-    if (method === 'card' && data.url) {
-        window.location.href = data.url;
-    } else if (method === 'paypal' && data.total) {
-        // Since PayPal needs a specific flow, we trigger the popup 
-        // with the calculated total from the server.
-        renderPayPalPopup(data.total);
-    }
+    if (data.url) window.location.href = data.url;
 }
 
-function renderPayPalPopup(total) {
-    // We temporarily show a container to mount the SDK button
-    let container = document.getElementById('paypal-mount');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'paypal-mount';
-        document.body.appendChild(container);
-    }
-    container.innerHTML = ''; 
-    
+function renderPayPalButton(total) {
     paypal.Buttons({
+        style: { height: 25, color: 'blue', shape: 'rect', label: 'paypal' },
         createOrder: (data, actions) => {
             return actions.order.create({
                 purchase_units: [{ amount: { value: total.toFixed(2) } }]
@@ -164,19 +171,24 @@ function renderPayPalPopup(total) {
             await actions.order.capture();
             window.location.href = '/?session=success';
         }
-    }).render('#paypal-mount').then(() => {
-        // Click the invisible button automatically to start the flow
-        const btn = container.querySelector('[role="link"], .paypal-button');
-        if (btn) btn.click();
-    });
+    }).render('#paypal-button-container');
 }
 
-function addToCart(id) { cart[id] = { qty: 1 }; render(); }
-function updateQty(id, qty) { if (qty > 0) cart[id].qty = 1; else delete cart[id]; render(); }
-function triggerUpload() { document.getElementById('upload-input').click(); }
+// Admin logic
 function trackEdit(product, field, value) { 
     if (product.id) { if (!pendingEdits[product.id]) pendingEdits[product.id] = {}; pendingEdits[product.id][field] = value; }
     else { newProducts[product._newIndex][field] = value; }
+}
+
+async function handleUpload(files) {
+    for (const file of Array.from(files)) {
+        const ext = file.name.split('.').pop();
+        const filePath = `covers/${Math.random()}-${Date.now()}.${ext}`;
+        await db.storage.from('product-media').upload(filePath, file);
+        const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(filePath);
+        newProducts.unshift({ title: '', sold: false, img_url: publicUrl });
+    }
+    render();
 }
 
 async function saveAll() {

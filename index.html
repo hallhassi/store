@@ -23,7 +23,10 @@ const db = supabase.createClient(
     'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC'
 );
 
-const FLAT_PRICE = 0.67;
+// Configuration
+const ADMIN_PASS = "admin123"; 
+const BUYER_PASS = "shop456"; 
+
 let inventory = [];
 let cart = {};
 let deletedIds = new Set();
@@ -34,7 +37,7 @@ async function init() {
     updateHeader();
     
     let productsReq = await db.from('products')
-        .select('id, title, img_url, created_at, sold')
+        .select('id, title, img_url, created_at, sold, price')
         .order('created_at', { ascending: false });
 
     if (productsReq.error) return;
@@ -44,60 +47,83 @@ async function init() {
 
 function updateHeader() {
     const header = document.getElementById('main-header');
-    const isAdmin = !!localStorage.getItem('admin_key');
+    const adminKey = localStorage.getItem('admin_key');
+    const buyerKey = localStorage.getItem('buyer_key');
     header.innerHTML = '';
 
-    if (isAdmin) {
+    // Subtle Login Input (No context/labels)
+    const authInput = document.createElement('input');
+    authInput.type = 'password';
+    authInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            if (authInput.value === ADMIN_PASS) {
+                localStorage.setItem('admin_key', authInput.value);
+                location.reload();
+            } else if (authInput.value === BUYER_PASS) {
+                localStorage.setItem('buyer_key', authInput.value);
+                location.reload();
+            }
+        }
+    };
+
+    if (!adminKey && !buyerKey) {
+        header.appendChild(authInput);
+        return;
+    }
+
+    const logoutBtn = document.createElement('button');
+    logoutBtn.textContent = 'logout';
+    logoutBtn.onclick = () => { 
+        localStorage.removeItem('admin_key'); 
+        localStorage.removeItem('buyer_key'); 
+        location.reload(); 
+    };
+
+    if (adminKey) {
         const label = document.createElement('span');
         label.textContent = 'admin';
-        
         const upBtn = document.createElement('button');
         upBtn.textContent = 'upload';
         upBtn.onclick = () => document.getElementById('upload-input').click();
-        
         const saveBtn = document.createElement('button');
         saveBtn.textContent = 'save';
         saveBtn.onclick = saveAll;
-
-        const logoutBtn = document.createElement('button');
-        logoutBtn.textContent = 'logout';
-        logoutBtn.onclick = () => { localStorage.removeItem('admin_key'); location.reload(); };
-
         const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.id = 'upload-input';
-        fileInput.multiple = true;
-        fileInput.accept = 'image/*';
+        fileInput.type = 'file'; fileInput.id = 'upload-input';
+        fileInput.multiple = true; fileInput.accept = 'image/*';
         fileInput.className = 'hidden';
         fileInput.onchange = (e) => handleUpload(e.target.files);
-
         header.append(label, upBtn, saveBtn, logoutBtn, fileInput);
     } else {
         const count = Object.keys(cart).length;
         const label = document.createElement('span');
-        label.textContent = 'pay';
+        label.textContent = `cart(${count})`;
         header.appendChild(label);
 
         if (count > 0) {
-            const subtotal = count * FLAT_PRICE;
+            let subtotal = 0;
+            Object.keys(cart).forEach(id => {
+                const item = inventory.find(p => p.id === id);
+                if (item) subtotal += parseFloat(item.price || 0);
+            });
             const cardTotal = (subtotal + 0.30) / (1 - 0.029);
-
             const payBtn = document.createElement('button');
-            payBtn.textContent = cardTotal.toFixed(2);
+            payBtn.textContent = `pay $${cardTotal.toFixed(2)} with credit card`;
             payBtn.onclick = startStripeCheckout;
             header.appendChild(payBtn);
         }
+        header.appendChild(logoutBtn);
     }
 }
 
 function renderProduct(product) {
     const isAdmin = !!localStorage.getItem('admin_key');
+    const isBuyer = !!localStorage.getItem('buyer_key');
     const inCart = !!cart[product.id];
     const isDeleted = deletedIds.has(product.id);
     const isSold = product.sold === true;
 
     const div = document.createElement('div');
-    // Apply opacity if deleted (Admin) or in cart (Buyer)
     if (isDeleted || inCart) div.style.opacity = '0.3';
 
     if (product.img_url) {
@@ -113,6 +139,14 @@ function renderProduct(product) {
     div.appendChild(titleInput);
 
     if (isAdmin) {
+        // Admin also gets a price input
+        const priceInput = document.createElement('input');
+        priceInput.type = 'number';
+        priceInput.step = '0.01';
+        priceInput.value = product.price ?? 0;
+        priceInput.oninput = (e) => trackEdit(product, 'price', e.target.value);
+        div.appendChild(priceInput);
+
         const delBtn = document.createElement('button');
         delBtn.textContent = isDeleted ? 'undo' : 'del';
         delBtn.onclick = () => {
@@ -120,16 +154,22 @@ function renderProduct(product) {
             render();
         };
         div.appendChild(delBtn);
-    } else if (!isSold) {
-        const buyBtn = document.createElement('button');
-        buyBtn.textContent = inCart ? 'undo' : 'buy';
-        buyBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);
-        div.appendChild(buyBtn);
-    } else {
-        const soldBtn = document.createElement('button');
-        soldBtn.textContent = 'sold';
-        soldBtn.disabled = true;
-        div.appendChild(soldBtn);
+    } else if (isBuyer) {
+        const priceSpan = document.createElement('span');
+        priceSpan.textContent = ` $${parseFloat(product.price || 0).toFixed(2)} `;
+        div.appendChild(priceSpan);
+
+        if (!isSold) {
+            const buyBtn = document.createElement('button');
+            buyBtn.textContent = inCart ? 'undo' : 'buy';
+            buyBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);
+            div.appendChild(buyBtn);
+        } else {
+            const soldBtn = document.createElement('button');
+            soldBtn.textContent = 'sold';
+            soldBtn.disabled = true;
+            div.appendChild(soldBtn);
+        }
     }
     return div;
 }
@@ -141,17 +181,8 @@ function render() {
     allProducts.forEach(p => list.appendChild(renderProduct(p)));
 }
 
-function addToCart(id) { 
-    cart[id] = { qty: 1 }; 
-    updateHeader(); 
-    render(); 
-}
-
-function updateQty(id, qty) { 
-    if (qty > 0) cart[id].qty = 1; else delete cart[id]; 
-    updateHeader(); 
-    render(); 
-}
+function addToCart(id) { cart[id] = { qty: 1 }; updateHeader(); render(); }
+function updateQty(id, qty) { if (qty > 0) cart[id].qty = 1; else delete cart[id]; updateHeader(); render(); }
 
 async function startStripeCheckout() {
     const res = await fetch('/.netlify/functions/create-checkout', {
@@ -178,7 +209,7 @@ async function handleUpload(files) {
         const filePath = `covers/${Math.random()}-${Date.now()}.${ext}`;
         await db.storage.from('product-media').upload(filePath, file);
         const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(filePath);
-        newProducts.unshift({ title: '', sold: false, img_url: publicUrl });
+        newProducts.unshift({ title: '', sold: false, price: 0, img_url: publicUrl });
     }
     render();
 }

@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Storefront</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://www.paypal.com/sdk/js?client-id=Abt9w5UJ8Kt5llcvSSSpjR5QfkT3OHBYV0U4uytXODmMdyM8YL0UwRIHUyLhtoMXnPwgHIu6qwjlfW3n&currency=USD"></script>
+    <style>
+        .hidden { display: none; }
+        img{margin-top:1em;}
+        #admin-bar { position: sticky; top: 0; background: white; padding: 10px; border-bottom: 1px solid #ccc; }
+        .date-header { margin-top: 2em; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+    
+<div id="store-front">
+    <div id="product-list"></div>
+</div>
+
+<div id="admin-bar" class="hidden">
+    <span>admin</span>
+    <button id="btn-upload" onclick="triggerUpload()">upload</button>
+    <button id="btn-save" onclick="saveAll()">save</button>
+    <button onclick="logout()" style="margin-left: auto;">logout</button>
+    <input type="file" id="upload-input" multiple accept="image/*" style="display:none" onchange="handleUpload(this.files)">
+</div>
+
+<div id="cart-wrapper" class="hidden">
+    <div>
+        <h3>payment</h3>
+        <ul>
+            <li><input type="radio" id="pay_paypal" name="method" value="paypal" onclick="updateTotal()"><label for="pay_paypal">PayPal</label></li>
+            <li><input type="radio" id="pay_zelle" name="method" value="zelle" onclick="updateTotal()"><label for="pay_zelle">Zelle</label></li>
+            <li><input type="radio" id="pay_card" name="method" value="card" onclick="updateTotal()"><label for="pay_card">Credit Card</label></li>
+        </ul>
+    </div>
+    <div id="total-section" class="hidden">
+        <h3>total</h3>
+        <ul id="summary-list"></ul>
+    </div>
+    <div id="checkout-section" class="hidden">
+        <h3>checkout</h3>
+        <ul>
+            <li><button onclick="handleCheckout()">checkout</button></li>
+            <li id="paypal-button-container" class="hidden"></li>
+        </ul>
+    </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════
+const db = supabase.createClient(
+    'https://numeejvkeadsucxwsecn.supabase.co',
+    'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC'
+);
+
+let inventory = [];
+let cart = {};
+let deletedIds = new Set();
+let newProducts = [];
+let pendingEdits = {};
+
+// ════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════
+async function init() {
+    const urlParams = new URLSearchParams(window.location.search);
+
+    if (urlParams.get('session') === 'success') {
+        localStorage.removeItem('cart');
+        cart = {};
+        const msg = document.createElement('p');
+        msg.innerHTML = '<strong>order received. check your email for download links.</strong>';
+        document.body.prepend(msg);
+        window.history.replaceState({}, document.title, '/');
+    }
+
+    const adminKey = localStorage.getItem('admin_key');
+    if (adminKey) {
+        document.getElementById('admin-bar').classList.remove('hidden');
+    }
+
+    let productsReq = await db.from('products')
+        .select('id, title, price, img_url, created_at')
+        .order('created_at', { ascending: false });
+
+    if (productsReq.error) return;
+    inventory = productsReq.data || [];
+
+    render();
+}
+
+// ════════════════════════════════════════════════
+// RENDER LOGIC
+// ════════════════════════════════════════════════
+function getCdnUrl(url, width) {
+    return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&fit=contain`;
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return 'New Uploads';
+    return new Date(dateStr).toLocaleDateString('en-CA').slice(2);
+}
+
+function renderProduct(product) {
+    const isAdmin = !!localStorage.getItem('admin_key');
+    const inCart = cart[product.id];
+    const isDeleted = deletedIds.has(product.id);
+    const divId = product.id ? `product-${product.id}` : `product-new-${product._newIndex}`;
+
+    const div = document.createElement('div');
+    div.id = divId;
+    div.style.marginBottom = "1.5em";
+    if (isDeleted) div.style.opacity = '0.3';
+
+    if (product.img_url) {
+        const img = document.createElement('img');
+        img.src = getCdnUrl(product.img_url, 300);
+        img.style.display = 'block';
+        img.style.width = '100px'; 
+        div.appendChild(img);
+    }
+
+    if (isAdmin) {
+        const fields = ['img_url', 'title', 'price'];
+        fields.forEach(field => {
+            const input = document.createElement('input');
+            input.type = field === 'price' ? 'number' : 'text';
+            input.value = product[field] ?? '';
+            input.placeholder = field;
+            input.oninput = (e) => trackEdit(product, field, input.type === 'number' ? parseFloat(e.target.value) : e.target.value);
+            div.appendChild(input);
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.textContent = isDeleted ? 'undo' : 'del';
+        delBtn.onclick = () => {
+            if (product.id) {
+                isDeleted ? deletedIds.delete(product.id) : deletedIds.add(product.id);
+            } else {
+                newProducts.splice(product._newIndex, 1);
+            }
+            render();
+        };
+        div.appendChild(delBtn);
+
+    } else {
+        const title = document.createElement('div');
+        title.textContent = product.title;
+        div.appendChild(title);
+
+        const price = document.createElement('div');
+        price.textContent = `$${product.price}`;
+        div.appendChild(price);
+
+        const buyBtn = document.createElement('button');
+        buyBtn.textContent = inCart ? 'remove' : 'buy';
+        buyBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);
+        div.appendChild(buyBtn);
+    }
+
+    return div;
+}
+
+function render() {
+    const list = document.getElementById('product-list');
+    list.innerHTML = '';
+
+    const allProducts = [
+        ...newProducts.map((p, i) => ({ ...p, _newIndex: i })),
+        ...inventory
+    ];
+
+    let lastDate = null;
+
+    allProducts.forEach(p => {
+        const currentDate = formatDate(p.created_at);
+        
+        if (currentDate !== lastDate) {
+            const dateHead = document.createElement('h3');
+            dateHead.className = 'date-header';
+            dateHead.textContent = currentDate;
+            list.appendChild(dateHead);
+            lastDate = currentDate;
+        }
+        
+        list.appendChild(renderProduct(p));
+    });
+}
+
+// ════════════════════════════════════════════════
+// ACTIONS
+// ════════════════════════════════════════════════
+function trackEdit(product, field, value) {
+    if (product.id) {
+        if (!pendingEdits[product.id]) pendingEdits[product.id] = {};
+        pendingEdits[product.id][field] = value;
+    } else {
+        newProducts[product._newIndex][field] = value;
+    }
+}
+
+function triggerUpload() {
+    document.getElementById('upload-input').click();
+}
+
+async function handleUpload(files) {
+    for (const file of Array.from(files)) {
+        try {
+            const url = await uploadSingleImage(file);
+            newProducts.unshift({ title: '', price: 0, img_url: url });
+            render();
+        } catch (e) {
+            alert("Upload failed: " + e.message);
+        }
+    }
+}
+
+async function saveAll() {
+    const btn = document.getElementById('btn-save');
+    const key = localStorage.getItem('admin_key');
+    btn.disabled = true;
+    btn.textContent = 'saving...';
+
+    const promises = [];
+
+    Object.entries(pendingEdits).forEach(([id, fields]) => {
+        if (deletedIds.has(id)) return;
+        promises.push(fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({ key, data: { id, ...fields } }),
+        }));
+    });
+
+    newProducts.forEach(p => {
+        if (!p.title) return; 
+        promises.push(fetch('/.netlify/functions/manage-products', {
+            method: 'POST',
+            body: JSON.stringify({ key, data: p }),
+        }));
+    });
+
+    deletedIds.forEach(id => {
+        promises.push(fetch('/.netlify/functions/manage-products', {
+            method: 'DELETE',
+            body: JSON.stringify({ key, data: { id } }),
+        }));
+    });
+
+    try {
+        if (promises.length > 0) await Promise.all(promises);
+        location.reload();
+    } catch (err) {
+        alert('Save error: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'save';
+    }
+}
+
+async function uploadSingleImage(file) {
+    const ext = file.name.split('.').pop();
+    const filePath = `covers/${Math.random()}-${Date.now()}.${ext}`;
+    const { error } = await db.storage.from('product-media').upload(filePath, file);
+    if (error) throw error;
+    const { data: { publicUrl } } = db.storage.from('product-media').getPublicUrl(filePath);
+    return publicUrl;
+}
+
+// ════════════════════════════════════════════════
+// CART
+// ════════════════════════════════════════════════
+function addToCart(id) {
+    document.getElementById('cart-wrapper').classList.remove('hidden');
+    cart[id] = { qty: 1 };
+    render();
+    updateTotal();
+}
+
+function updateQty(id, qty) {
+    if (parseInt(qty) > 0) cart[id].qty = parseInt(qty); else delete cart[id];
+    render();
+    updateTotal();
+}
+
+// ════════════════════════════════════════════════
+// TOTAL CALCULATION (NO SHIPPING)
+// ════════════════════════════════════════════════
+function calculateLocally() {
+    const method = document.querySelector('input[name="method"]:checked')?.value;
+    if (Object.keys(cart).length === 0) return { total: 0, breakdown: [] };
+    if (!method) return null;
+
+    let subtotal = 0;
+    const breakdown = [];
+
+    Object.keys(cart).forEach(id => {
+        const product = inventory.find(b => b.id === id);
+        if (!product) return;
+        const itemTotal = product.price * cart[id].qty;
+        subtotal += itemTotal;
+        breakdown.push(`$${itemTotal.toFixed(2)} ${product.title}`);
+    });
+
+    let total = subtotal;
+    if (method === 'card') total = (total + 0.30) / (1 - 0.029);
+    if (method === 'paypal') total = (total + 0.49) / (1 - 0.044);
+
+    const fee = total - subtotal;
+    if (fee > 0) breakdown.push(`$${fee.toFixed(2)} fee`);
+
+    return { total, breakdown };
+}
+
+function updateTotal() {
+    const result = calculateLocally();
+    const totalSection = document.getElementById('total-section');
+    const checkoutSection = document.getElementById('checkout-section');
+    const paypalContainer = document.getElementById('paypal-button-container');
+    const checkoutBtn = document.querySelector('#checkout-section button');
+    const method = document.querySelector('input[name="method"]:checked')?.value;
+
+    if (!result || result.breakdown.length === 0) {
+        totalSection.classList.add('hidden');
+        checkoutSection.classList.add('hidden');
+        return;
+    }
+
+    document.getElementById('summary-list').innerHTML =
+        result.breakdown.map(l => `<li>${l}</li>`).join('') +
+        `<li><strong>$${result.total.toFixed(2)} total</strong></li>`;
+
+    totalSection.classList.remove('hidden');
+    checkoutSection.classList.remove('hidden');
+
+    if (method === 'paypal') {
+        checkoutBtn.parentElement.classList.add('hidden');
+        paypalContainer.classList.remove('hidden');
+        renderPayPal();
+    } else {
+        checkoutBtn.parentElement.classList.remove('hidden');
+        paypalContainer.classList.add('hidden');
+    }
+}
+
+async function handleCheckout() {
+    const method = document.querySelector('input[name="method"]:checked')?.value;
+    const checkoutBtn = document.querySelector('#checkout-section button');
+
+    if (method === 'zelle') {
+        const result = calculateLocally();
+        alert(`Please Zelle $${result.total.toFixed(2)} to your@email.com`);
+        return;
+    }
+
+    checkoutBtn.disabled = true;
+    checkoutBtn.innerText = 'redirecting...';
+
+    const res = await fetch('/.netlify/functions/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart, method }),
+    });
+    const data = await res.json();
+
+    if (data.url) {
+        window.location.href = data.url;
+    } else {
+        alert('Checkout failed: ' + (data.error || 'Unknown error'));
+        checkoutBtn.disabled = false;
+        checkoutBtn.innerText = 'checkout';
+    }
+}
+
+function renderPayPal() {
+    const container = document.getElementById('paypal-button-container');
+    container.innerHTML = '';
+
+    paypal.Buttons({
+        createOrder: async (data, actions) => {
+            const response = await fetch('/.netlify/functions/create-checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cart, method: 'paypal' }),
+            });
+            const result = await response.json();
+            return actions.order.create({
+                purchase_units: [{ amount: { value: result.total.toFixed(2) } }],
+            });
+        },
+        onApprove: async (data, actions) => {
+            const order = await actions.order.capture();
+            await fetch('/.netlify/functions/handle-purchase', {
+                method: 'POST',
+                body: JSON.stringify({ source: 'paypal', details: order, cart }),
+            });
+            window.location.href = '/?session=success';
+        },
+    }).render('#paypal-button-container');
+}
+
+function logout() {
+    localStorage.removeItem('admin_key');
+    window.location.href = '/';
+}
+
+init();
+</script>
+</body>
+</html>

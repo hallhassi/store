@@ -114,12 +114,6 @@ function renderProduct(product) {
         div.appendChild(img);
     }
 
-    if (product.img_url) {
-        const img = document.createElement('img');
-        img.src = `/.netlify/images?url=${encodeURIComponent(product.img_url)}&w=300&fit=contain`;
-        div.appendChild(img);
-    }
-
     const titleInput = document.createElement('input');
     titleInput.value = product.title ?? '';
     titleInput.readOnly = !isAdmin;

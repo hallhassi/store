@@ -1,11 +1,7 @@
-const { cart, success_url } = JSON.parse(event.body);
-const productIds = Object.keys(cart);
-console.log('productIds:', productIds);
-console.log('success_url:', success_url);
-
 exports.handler = async (event) => {
     try {
-        const { productIds, success_url } = JSON.parse(event.body);
+        const { cart, success_url } = JSON.parse(event.body); // <-- must be in here
+        const productIds = Object.keys(cart);
         const qty = productIds.length;
         const subtotalCents = qty * 67;
         const totalCents = Math.round((subtotalCents + 30) / (1 - 0.029));

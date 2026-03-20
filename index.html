@@ -23,10 +23,6 @@ const db = supabase.createClient(
     'sb_publishable_oVLDp_xdbMLQ1rYjIJm-nQ_WRQfhfXC'
 );
 
-// Configuration
-const ADMIN_PASS = "admin123"; 
-const BUYER_PASS = "shop456"; 
-
 let inventory = [];
 let cart = {};
 let deletedIds = new Set();
@@ -34,71 +30,23 @@ let newProducts = [];
 let pendingEdits = {};
 
 async function init() {
-    // 1. Check URL for a token
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-
-    if (token) {
-        // Unlock buyer mode and save the token as the key
-        localStorage.setItem('buyer_key', token);
-        // Clean the URL so the token doesn't sit in the address bar
-        window.history.replaceState({}, document.title, "/");
-    }
-
     updateHeader();
     
-    let productsReq = await db.from('products')
-        .select('id, title, img_url, created_at, sold, price')
+    let { data, error } = await db.from('products')
+        .select('id, title, img_url, price, sold')
         .order('created_at', { ascending: false });
 
-    if (productsReq.error) return;
-    inventory = productsReq.data || [];
+    if (error) return console.error(error);
+    inventory = data || [];
     render();
 }
 
 function updateHeader() {
     const header = document.getElementById('main-header');
-    const adminKey = localStorage.getItem('admin_key');
-    const buyerKey = localStorage.getItem('buyer_key');
+    const isAdmin = !!localStorage.getItem('admin_key');
     header.innerHTML = '';
 
-    // 1. GUEST STATE (No Login)
-    // Shows only the invisible 50px input for Admin access
-    if (!adminKey && !buyerKey) {
-        const adminInput = document.createElement('input');
-        adminInput.type = 'password';
-        // Invisible styling: no borders, transparent background
-        adminInput.style.border = 'none';
-        adminInput.style.outline = 'none';
-        adminInput.style.background = 'transparent';
-        adminInput.style.width = '50px';
-        
-        adminInput.onkeydown = (e) => {
-            if (e.key === 'Enter') {
-                // Validates against the Netlify environment variable value
-                if (adminInput.value === "admin_secret") {
-                    localStorage.setItem('admin_key', adminInput.value);
-                    location.reload();
-                } else {
-                    adminInput.value = ''; // Clear on failure
-                }
-            }
-        };
-        header.appendChild(adminInput);
-        return;
-    }
-
-    // 2. LOGOUT BUTTON (Shared by Admin & Buyer)
-    const logoutBtn = document.createElement('button');
-    logoutBtn.textContent = 'logout';
-    logoutBtn.onclick = () => { 
-        localStorage.removeItem('admin_key'); 
-        localStorage.removeItem('buyer_key'); 
-        location.reload(); 
-    };
-
-    // 3. ADMIN UI
-    if (adminKey) {
+    if (isAdmin) {
         const label = document.createElement('span');
         label.textContent = 'admin';
         
@@ -110,54 +58,47 @@ function updateHeader() {
         saveBtn.textContent = 'save';
         saveBtn.onclick = saveAll;
 
+        const logoutBtn = document.createElement('button');
+        logoutBtn.textContent = 'logout';
+        logoutBtn.onclick = () => { localStorage.removeItem('admin_key'); location.reload(); };
+
         const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.id = 'upload-input';
-        fileInput.multiple = true;
-        fileInput.accept = 'image/*';
+        fileInput.type = 'file'; fileInput.id = 'upload-input';
+        fileInput.multiple = true; fileInput.accept = 'image/*';
         fileInput.className = 'hidden';
         fileInput.onchange = (e) => handleUpload(e.target.files);
 
         header.append(label, upBtn, saveBtn, logoutBtn, fileInput);
-
-    // 4. BUYER UI
-    } else if (buyerKey) {
+    } else {
         const cartIds = Object.keys(cart);
         const count = cartIds.length;
-        
         const label = document.createElement('span');
         label.textContent = `cart(${count})`;
         header.appendChild(label);
 
         if (count > 0) {
-            // Calculate subtotal from Supabase price column
             let subtotal = 0;
             cartIds.forEach(id => {
                 const item = inventory.find(p => p.id === id);
                 if (item) subtotal += parseFloat(item.price || 0);
             });
-
-            // Stripe Fee Math: (Subtotal + 30c) / (1 - 2.9%)
             const cardTotal = (subtotal + 0.30) / (1 - 0.029);
-
             const payBtn = document.createElement('button');
             payBtn.textContent = `pay $${cardTotal.toFixed(2)} with credit card`;
             payBtn.onclick = startStripeCheckout;
             header.appendChild(payBtn);
         }
-        header.appendChild(logoutBtn);
     }
 }
-    
+
 function renderProduct(product) {
     const isAdmin = !!localStorage.getItem('admin_key');
-    const isBuyer = !!localStorage.getItem('buyer_key');
     const inCart = !!cart[product.id];
     const isDeleted = deletedIds.has(product.id);
     const isSold = product.sold === true;
 
     const div = document.createElement('div');
-    if (isDeleted || inCart) div.style.opacity = '0.3';
+    if (inCart || isDeleted) div.style.opacity = '0.3';
 
     if (product.img_url) {
         const img = document.createElement('img');
@@ -172,10 +113,8 @@ function renderProduct(product) {
     div.appendChild(titleInput);
 
     if (isAdmin) {
-        // Admin also gets a price input
         const priceInput = document.createElement('input');
         priceInput.type = 'number';
-        priceInput.step = '0.01';
         priceInput.value = product.price ?? 0;
         priceInput.oninput = (e) => trackEdit(product, 'price', e.target.value);
         div.appendChild(priceInput);
@@ -187,7 +126,7 @@ function renderProduct(product) {
             render();
         };
         div.appendChild(delBtn);
-    } else if (isBuyer) {
+    } else {
         const priceSpan = document.createElement('span');
         priceSpan.textContent = ` $${parseFloat(product.price || 0).toFixed(2)} `;
         div.appendChild(priceSpan);
@@ -210,8 +149,8 @@ function renderProduct(product) {
 function render() {
     const list = document.getElementById('product-list');
     list.innerHTML = '';
-    const allProducts = [...newProducts.map((p, i) => ({ ...p, _newIndex: i })), ...inventory];
-    allProducts.forEach(p => list.appendChild(renderProduct(p)));
+    const all = [...newProducts.map((p, i) => ({ ...p, _newIndex: i })), ...inventory];
+    all.forEach(p => list.appendChild(renderProduct(p)));
 }
 
 function addToCart(id) { cart[id] = { qty: 1 }; updateHeader(); render(); }
@@ -221,7 +160,7 @@ async function startStripeCheckout() {
     const res = await fetch('/.netlify/functions/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cart, method: 'card' }),
+        body: JSON.stringify({ cart }),
     });
     const data = await res.json();
     if (data.url) window.location.href = data.url;

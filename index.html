@@ -123,9 +123,6 @@ function renderProduct(product) {
         titleInput.value = product.title ?? '';
         titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
         div.appendChild(titleInput);
-        
-        // Price Input Removed here
-
         const delBtn = document.createElement('button');
         delBtn.textContent = isDeleted ? 'undo' : 'del';
         delBtn.onclick = () => {
@@ -137,72 +134,6 @@ function renderProduct(product) {
         const titleSpan = document.createElement('span');
         titleSpan.textContent = product.title || 'Untitled';
         div.appendChild(titleSpan);
-
-        // Price Span Removed here
-
-        const actionBtn = document.createElement('button');
-        if (isSold) {
-            actionBtn.textContent = 'sold';
-            actionBtn.disabled = true;
-        } else {
-            actionBtn.textContent = inCart ? 'undo' : 'buy';
-            actionBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);
-        }
-        div.appendChild(actionBtn);
-    }
-    return div;
-}
-
-/**
- * UI: PRODUCT RENDERING
- */
-function renderProduct(product) {
-    const isAdmin = !!localStorage.getItem('admin_key');
-    const inCart = !!cart[product.id];
-    const isSold = product.sold === true;
-    const isDeleted = deletedIds.has(product.id);
-
-    const div = document.createElement('div');
-    
-    // Default Buyer view grays out sold/in-cart items
-    if (!isAdmin && (inCart || isSold)) div.classList.add('unavailable');
-    if (isAdmin && isDeleted) div.style.opacity = '0.3';
-
-    if (product.img_url) {
-        const img = document.createElement('img');
-        img.src = `/.netlify/images?url=${encodeURIComponent(product.img_url)}&w=300&fit=contain`;
-        div.appendChild(img);
-    }
-
-    // Title logic
-    if (isAdmin) {
-        const titleInput = document.createElement('input');
-        titleInput.value = product.title ?? '';
-        titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
-        div.appendChild(titleInput);
-        
-        const priceInput = document.createElement('input');
-        priceInput.type = 'number';
-        priceInput.value = product.price ?? 0;
-        priceInput.oninput = (e) => trackEdit(product, 'price', e.target.value);
-        div.appendChild(priceInput);
-
-        const delBtn = document.createElement('button');
-        delBtn.textContent = isDeleted ? 'undo' : 'del';
-        delBtn.onclick = () => {
-            isDeleted ? deletedIds.delete(product.id) : deletedIds.add(product.id);
-            render();
-        };
-        div.appendChild(delBtn);
-    } else {
-        const titleSpan = document.createElement('span');
-        titleSpan.textContent = product.title || 'Untitled';
-        div.appendChild(titleSpan);
-
-        const priceSpan = document.createElement('span');
-        priceSpan.textContent = ` $${parseFloat(product.price || 0).toFixed(2)} `;
-        div.appendChild(priceSpan);
-
         const actionBtn = document.createElement('button');
         if (isSold) {
             actionBtn.textContent = 'sold';

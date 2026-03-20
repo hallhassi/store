@@ -1,5 +1,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { cart, success_url } = JSON.parse(event.body);
+const productIds = Object.keys(cart);
 
 exports.handler = async (event) => {
     try {

@@ -42,8 +42,7 @@ exports.handler = async (event) => {
                 quantity: 1,
             }],
             metadata: {
-                // Store IDs for the 'handle-purchase' webhook to mark as sold
-                product_ids: Object.keys(cart).join(',')
+                productIds: JSON.stringify(Object.keys(cart)) // Pass the IDs here
             },
             mode: 'payment',
             success_url: `${process.env.URL}/?session=success`,

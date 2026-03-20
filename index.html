@@ -107,23 +107,31 @@ function renderProduct(product) {
 
     const div = document.createElement('div');
     
-    if (isAdmin && isDeleted) div.style.opacity = '0.3';
-    if (!isAdmin && (inCart || isSold)) {
+    if ((!isAdmin && isSold) || (isAdmin && isDeleted)) {
         div.style.opacity = '0.3';
+        div.style.filter = 'grayscale(1)';
     }
-    
+
     if (product.img_url) {
         const img = document.createElement('img');
         img.src = `/.netlify/images?url=${encodeURIComponent(product.img_url)}&w=300&fit=contain`;
         div.appendChild(img);
     }
 
-    // Title Logic (Inputs for Admin, Text for Buyer)
     if (isAdmin) {
         const titleInput = document.createElement('input');
         titleInput.value = product.title ?? '';
         titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
         div.appendChild(titleInput);
+
+        const soldLabel = document.createElement('label');
+        soldLabel.innerHTML = `<input type="checkbox" ${isSold ? 'checked' : ''}> sold`;
+        soldLabel.querySelector('input').onchange = (e) => {
+            trackEdit(product, 'sold', e.target.checked);
+            render(); 
+        };
+        div.appendChild(soldLabel);
+
         const delBtn = document.createElement('button');
         delBtn.textContent = isDeleted ? 'undo' : 'del';
         delBtn.onclick = () => {
@@ -135,15 +143,17 @@ function renderProduct(product) {
         const titleSpan = document.createElement('span');
         titleSpan.textContent = product.title || 'Untitled';
         div.appendChild(titleSpan);
-        const actionBtn = document.createElement('button');
+
         if (isSold) {
-            actionBtn.textContent = 'sold';
-            actionBtn.disabled = true;
+            const tag = document.createElement('span');
+            tag.textContent = ' (sold)';
+            div.appendChild(tag);
         } else {
+            const actionBtn = document.createElement('button');
             actionBtn.textContent = inCart ? 'undo' : 'buy';
             actionBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);
+            div.appendChild(actionBtn);
         }
-        div.appendChild(actionBtn);
     }
     return div;
 }

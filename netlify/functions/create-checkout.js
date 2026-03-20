@@ -41,12 +41,12 @@ exports.handler = async (event) => {
                 },
                 quantity: 1,
             }],
-            metadata: {
-                productIds: JSON.stringify(Object.keys(cart)) // Pass the IDs here
-            },
             mode: 'payment',
-            success_url: `${process.env.URL}/?session=success`,
-            cancel_url: `${process.env.URL}/`,
+            success_url: success_url, 
+            cancel_url: `${process.env.URL || 'http://localhost:8888'}/`,
+            metadata: {
+                productIds: JSON.stringify(productIds) 
+            }
         });
 
         return {

@@ -32,7 +32,6 @@ let pendingEdits = {};
 
 async function init() {
     updateHeader();
-    
     let { data, error } = await db.from('products')
         .select('id, title, img_url, price, sold, created_at')
         .order('created_at', { ascending: false });
@@ -42,9 +41,6 @@ async function init() {
     render();
 }
 
-/**
- * UI: HEADER
- */
 function updateHeader() {
     const header = document.getElementById('main-header');
     const isAdmin = !!localStorage.getItem('admin_key');
@@ -53,25 +49,20 @@ function updateHeader() {
     if (isAdmin) {
         const label = document.createElement('span');
         label.textContent = 'admin';
-        
         const upBtn = document.createElement('button');
         upBtn.textContent = 'upload';
         upBtn.onclick = () => document.getElementById('upload-input').click();
-        
         const saveBtn = document.createElement('button');
         saveBtn.textContent = 'save';
         saveBtn.onclick = saveAll;
-
         const logoutBtn = document.createElement('button');
         logoutBtn.textContent = 'logout';
         logoutBtn.onclick = () => { localStorage.removeItem('admin_key'); location.reload(); };
-
         const fileInput = document.createElement('input');
         fileInput.type = 'file'; fileInput.id = 'upload-input';
         fileInput.multiple = true; fileInput.accept = 'image/*';
         fileInput.className = 'hidden';
         fileInput.onchange = (e) => handleUpload(e.target.files);
-
         header.append(label, upBtn, saveBtn, logoutBtn, fileInput);
     } else {
         const cartIds = Object.keys(cart);
@@ -79,14 +70,12 @@ function updateHeader() {
         const label = document.createElement('span');
         label.textContent = `cart(${count})`;
         header.appendChild(label);
-
         if (count > 0) {
             let subtotal = 0;
             cartIds.forEach(id => {
                 const item = inventory.find(p => p.id === id);
                 if (item) subtotal += parseFloat(item.price || 0);
             });
-            // Final Stripe total including fees
             const cardTotal = (subtotal + 0.30) / (1 - 0.029);
             const payBtn = document.createElement('button');
             payBtn.textContent = `pay $${cardTotal.toFixed(2)}`;
@@ -96,9 +85,6 @@ function updateHeader() {
     }
 }
 
-/**
- * UI: PRODUCT RENDERING
- */
 function renderProduct(product) {
     const isAdmin = !!localStorage.getItem('admin_key');
     const inCart = !!cart[product.id];
@@ -107,7 +93,7 @@ function renderProduct(product) {
 
     const div = document.createElement('div');
     
-    if ((!isAdmin && isSold) || (isAdmin && isDeleted)) {
+    if (isSold || (isAdmin && isDeleted)) {
         div.style.opacity = '0.3';
         div.style.filter = 'grayscale(1)';
     }
@@ -124,13 +110,12 @@ function renderProduct(product) {
         titleInput.oninput = (e) => trackEdit(product, 'title', e.target.value);
         div.appendChild(titleInput);
 
-        const soldLabel = document.createElement('label');
-        soldLabel.innerHTML = `<input type="checkbox" ${isSold ? 'checked' : ''}> sold`;
-        soldLabel.querySelector('input').onchange = (e) => {
-            trackEdit(product, 'sold', e.target.checked);
-            render(); 
-        };
-        div.appendChild(soldLabel);
+        if (!isSold) {
+            const soldLabel = document.createElement('label');
+            soldLabel.innerHTML = `<input type="checkbox"> sold`;
+            soldLabel.querySelector('input').onchange = (e) => trackEdit(product, 'sold', e.target.checked);
+            div.appendChild(soldLabel);
+        }
 
         const delBtn = document.createElement('button');
         delBtn.textContent = isDeleted ? 'undo' : 'del';
@@ -144,11 +129,7 @@ function renderProduct(product) {
         titleSpan.textContent = product.title || 'Untitled';
         div.appendChild(titleSpan);
 
-        if (isSold) {
-            const tag = document.createElement('span');
-            tag.textContent = ' (sold)';
-            div.appendChild(tag);
-        } else {
+        if (!isSold) {
             const actionBtn = document.createElement('button');
             actionBtn.textContent = inCart ? 'undo' : 'buy';
             actionBtn.onclick = () => inCart ? updateQty(product.id, 0) : addToCart(product.id);

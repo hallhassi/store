@@ -9,7 +9,7 @@
         img { width: 100px; display: block; }
     </style>
 </head>
-<body><h1>i'm a victim!!!</h1>
+<body>
 
 <header id="main-header"></header>
 
@@ -34,6 +34,17 @@ let newProducts = [];
 let pendingEdits = {};
 
 async function init() {
+    // 1. Check URL for a token
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (token) {
+        // Unlock buyer mode and save the token as the key
+        localStorage.setItem('buyer_key', token);
+        // Clean the URL so the token doesn't sit in the address bar
+        window.history.replaceState({}, document.title, "/");
+    }
+
     updateHeader();
     
     let productsReq = await db.from('products')
@@ -51,26 +62,33 @@ function updateHeader() {
     const buyerKey = localStorage.getItem('buyer_key');
     header.innerHTML = '';
 
-    // Subtle Login Input (No context/labels)
-    const authInput = document.createElement('input');
-    authInput.type = 'password';
-    authInput.onkeydown = (e) => {
-        if (e.key === 'Enter') {
-            if (authInput.value === ADMIN_PASS) {
-                localStorage.setItem('admin_key', authInput.value);
-                location.reload();
-            } else if (authInput.value === BUYER_PASS) {
-                localStorage.setItem('buyer_key', authInput.value);
-                location.reload();
-            }
-        }
-    };
-
+    // 1. GUEST STATE (No Login)
+    // Shows only the invisible 50px input for Admin access
     if (!adminKey && !buyerKey) {
-        header.appendChild(authInput);
+        const adminInput = document.createElement('input');
+        adminInput.type = 'password';
+        // Invisible styling: no borders, transparent background
+        adminInput.style.border = 'none';
+        adminInput.style.outline = 'none';
+        adminInput.style.background = 'transparent';
+        adminInput.style.width = '50px';
+        
+        adminInput.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                // Validates against the Netlify environment variable value
+                if (adminInput.value === "admin_secret") {
+                    localStorage.setItem('admin_key', adminInput.value);
+                    location.reload();
+                } else {
+                    adminInput.value = ''; // Clear on failure
+                }
+            }
+        };
+        header.appendChild(adminInput);
         return;
     }
 
+    // 2. LOGOUT BUTTON (Shared by Admin & Buyer)
     const logoutBtn = document.createElement('button');
     logoutBtn.textContent = 'logout';
     logoutBtn.onclick = () => { 
@@ -79,34 +97,49 @@ function updateHeader() {
         location.reload(); 
     };
 
+    // 3. ADMIN UI
     if (adminKey) {
         const label = document.createElement('span');
         label.textContent = 'admin';
+        
         const upBtn = document.createElement('button');
         upBtn.textContent = 'upload';
         upBtn.onclick = () => document.getElementById('upload-input').click();
+        
         const saveBtn = document.createElement('button');
         saveBtn.textContent = 'save';
         saveBtn.onclick = saveAll;
+
         const fileInput = document.createElement('input');
-        fileInput.type = 'file'; fileInput.id = 'upload-input';
-        fileInput.multiple = true; fileInput.accept = 'image/*';
+        fileInput.type = 'file';
+        fileInput.id = 'upload-input';
+        fileInput.multiple = true;
+        fileInput.accept = 'image/*';
         fileInput.className = 'hidden';
         fileInput.onchange = (e) => handleUpload(e.target.files);
+
         header.append(label, upBtn, saveBtn, logoutBtn, fileInput);
-    } else {
-        const count = Object.keys(cart).length;
+
+    // 4. BUYER UI
+    } else if (buyerKey) {
+        const cartIds = Object.keys(cart);
+        const count = cartIds.length;
+        
         const label = document.createElement('span');
         label.textContent = `cart(${count})`;
         header.appendChild(label);
 
         if (count > 0) {
+            // Calculate subtotal from Supabase price column
             let subtotal = 0;
-            Object.keys(cart).forEach(id => {
+            cartIds.forEach(id => {
                 const item = inventory.find(p => p.id === id);
                 if (item) subtotal += parseFloat(item.price || 0);
             });
+
+            // Stripe Fee Math: (Subtotal + 30c) / (1 - 2.9%)
             const cardTotal = (subtotal + 0.30) / (1 - 0.029);
+
             const payBtn = document.createElement('button');
             payBtn.textContent = `pay $${cardTotal.toFixed(2)} with credit card`;
             payBtn.onclick = startStripeCheckout;
@@ -115,7 +148,7 @@ function updateHeader() {
         header.appendChild(logoutBtn);
     }
 }
-
+    
 function renderProduct(product) {
     const isAdmin = !!localStorage.getItem('admin_key');
     const isBuyer = !!localStorage.getItem('buyer_key');

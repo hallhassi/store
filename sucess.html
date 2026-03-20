@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Thank You</title>
+    <style>
+        body { text-align: center; font-family: sans-serif; padding: 50px; }
+        img { max-width: 80vw; border-radius: 8px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Purchase Successful!</h1>
+    <p>Here is your item:</p>
+    <div id="display"></div>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const imgUrl = params.get('img');
+        if (imgUrl) {
+            const img = document.createElement('img');
+            img.src = imgUrl;
+            document.getElementById('display').appendChild(img);
+        }
+    </script>
+</body>
+</html>

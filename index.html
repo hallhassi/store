@@ -150,10 +150,17 @@ function addToCart(id) { cart[id] = { qty: 1 }; updateHeader(); render(); }
 function updateQty(id, qty) { if (qty > 0) cart[id].qty = 1; else delete cart[id]; updateHeader(); render(); }
 
 async function startStripeCheckout() {
+    const firstId = Object.keys(cart)[0];
+    const item = inventory.find(p => p.id === firstId);
+    const encodedImg = encodeURIComponent(item.img_url);
+
     const res = await fetch('/.netlify/functions/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cart }),
+        body: JSON.stringify({ 
+            cart, 
+            success_url: `${window.location.origin}/success.html?img=${encodedImg}` 
+        }),
     });
     const data = await res.json();
     if (data.url) window.location.href = data.url;
